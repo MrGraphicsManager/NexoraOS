@@ -1,0 +1,42 @@
+{
+  "summary": "Backend-only testing of NexoraOS. Ran 28 pytest cases against public preview URL covering signup+OTP, login, /me, forgot/reset, categories/products/tables/customers/inventory CRUD, stock transactions (in/out/adjust), order creation with totals+table+customer effects, sequential order_no per cafe, order status flow freeing tables, tenant isolation between two cafes (Owner A vs Owner B), dashboard, reports, staff RBAC (owner-only create, cashier/kitchen 403 on writes), Razorpay create-order for monthly/yearly and non-owner 403, and PATCH /api/cafe. All 28 tests PASS.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/forgot-password", "issue": "Does not implement brute-force lockout or sha256 token_hash storage (raw 6-digit OTP stored in Mongo). Acceptable per current spec (OTP-based) but flagged from the playbook checklist."},
+      {"endpoint": "/api/auth/reset-password", "issue": "Does not clear a brute-force lockout counter (there is none). Same context as above."},
+      {"endpoint": "/api/auth/logout", "issue": "Stateless JWT logout returns {message: 'Logged out'} but does not blacklist token; server-side logout is a no-op. Cookie-based httpOnly session is not used (JWT in Authorization header only)."},
+      {"endpoint": "/api/orders (PATCH)", "issue": "update_order_status does not scope table update by cafe_id when freeing table (uses only table_id). Low risk because table_ids are UUIDs, but should filter by cafe_id for defense in depth."},
+      {"endpoint": "/api/inventory/stock", "issue": "inventory update on stock txn does not filter by cafe_id (uses only item_id). Same low-risk pattern; recommend adding cafe_id filter."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: scope table/inventory update writes by cafe_id in create_order/update_order_status/stock_txn for defense-in-depth (currently filters only by resource id).",
+    "Optional: remove dev-mode OTP log line before production (server.py line 130 logs OTP in plaintext).",
+    "Playbook divergences (informational): app uses stateless JWT in Authorization header (not httpOnly cookie), no brute-force lockout, no sha256 token_hash — these are intentional per current OTP-based auth design but do not match the generic auth playbook."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 743 lines; consider splitting into routers per resource (auth, orders, menu, staff, subscription).",
+    "OTP is logged to backend logs in plaintext (line 130). Remove before production.",
+    "verify_otp expiry check on line 203 uses a confusing single-line conditional that is hard to read; simplify.",
+    "PATCH /orders/{oid} table free logic does not filter table update by cafe_id.",
+    "POST /inventory/stock: db.inventory.update_one uses only {'id': item_id} without cafe_id.",
+    "CORS allow_origins defaults to '*' with allow_credentials=True — invalid combo per browsers; fine for API-only clients but should tighten in prod.",
+    "No pagination on list endpoints (uses .to_list(2000/5000)); will break at scale.",
+    "Trial subscription hardcoded to 14 days — acceptable but consider config."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "not tested"},
+  "test_credentials": "Dynamically generated per test run: TEST_ownerA_<hex>@example.com and TEST_ownerB_<hex>@example.com with password 'Password123!'. OTPs read directly from MongoDB db.otps collection.",
+  "seed_data_creation": "No manual seed data. Tests create fresh owners/cafes/categories/products/tables/customers/inventory/orders/staff on each run, all prefixed TEST_.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "backend_test.py uses pymongo directly to fetch OTPs from db.otps for signup/reset flows. All resources are cafe-scoped by JWT cafe_id claim. Order numbers start at 1001 per cafe and increment. Trial subscription auto-created on signup. Razorpay live keys are configured; only create-order is tested (verify requires real signature). Tenant isolation verified by cross-checking Owner A's cafe_id absent from Owner B's lists and vice versa. TEST_ prefix used throughout for future cleanup."
+}

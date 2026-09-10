@@ -1,0 +1,119 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #FDFBF7;
+  --surface: #FFFFFF;
+  --surface-muted: #F5ECE1;
+  --border: #E8DCCF;
+  --border-subtle: #F2E8DC;
+  --text: #2D221E;
+  --text-secondary: #6B5A52;
+  --text-muted: #9C8A80;
+  --coffee: #3D271D;
+  --coffee-hover: #2B1A13;
+  --terracotta: #C85A32;
+  --terracotta-hover: #B04A25;
+  --amber: #D97706;
+  --success-bg: #ECFDF5;
+  --success: #047857;
+  --danger-bg: #FEF2F2;
+  --danger: #B91C1C;
+  --warn-bg: #FFFBEB;
+  --warn: #B45309;
+}
+
+@layer base {
+  :root {
+    --background: 36 43% 98%;
+    --foreground: 20 22% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 22% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 22% 15%;
+    --primary: 18 37% 18%;
+    --primary-foreground: 36 43% 98%;
+    --secondary: 32 43% 92%;
+    --secondary-foreground: 20 22% 15%;
+    --muted: 32 43% 92%;
+    --muted-foreground: 16 16% 40%;
+    --accent: 32 43% 92%;
+    --accent-foreground: 20 22% 15%;
+    --destructive: 0 74% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 40% 86%;
+    --input: 30 40% 86%;
+    --ring: 18 37% 18%;
+    --chart-1: 18 60% 49%;
+    --chart-2: 25 37% 30%;
+    --chart-3: 33 74% 44%;
+    --chart-4: 154 55% 45%;
+    --chart-5: 0 74% 55%;
+    --radius: 0.75rem;
+  }
+}
+
+* { border-color: hsl(var(--border)); }
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4, h5, .font-display { font-family: 'Outfit', sans-serif; letter-spacing: -0.02em; }
+.font-mono, .tabular { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.badge-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.status-available { background: var(--success-bg); color: var(--success); }
+.status-occupied  { background: var(--danger-bg);  color: var(--danger);  }
+.status-reserved  { background: var(--warn-bg);    color: var(--warn);    }
+.status-new       { background: #FFFBEB; color: #B45309; }
+.status-preparing { background: #EFF6FF; color: #1D4ED8; }
+.status-ready     { background: #ECFDF5; color: #047857; }
+.status-completed { background: #F3F4F6; color: #374151; }
+.status-cancelled { background: #FEF2F2; color: #B91C1C; }
+
+.btn-coffee {
+  background: var(--coffee); color: #FDFBF7;
+  border-radius: 10px; padding: 10px 16px; font-weight: 600;
+  transition: background .15s ease;
+}
+.btn-coffee:hover { background: var(--coffee-hover); }
+.btn-terracotta { background: var(--terracotta); color: white; }
+.btn-terracotta:hover { background: var(--terracotta-hover); }
+
+.sidebar-link {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px;
+  color: var(--text-secondary); font-weight: 500; font-size: 14px;
+  transition: background .15s ease, color .15s ease;
+}
+.sidebar-link:hover { background: var(--surface-muted); color: var(--text); }
+.sidebar-link.active { background: var(--coffee); color: #FDFBF7; }
+.sidebar-link.active svg { color: #FDFBF7; }
+
+.kpi-value { font-family: 'Outfit', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; color: var(--text); }
+.kpi-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+
+.grain::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.03; z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.scrollable::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollable::-webkit-scrollbar-thumb { background: #E8DCCF; border-radius: 4px; }

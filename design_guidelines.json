@@ -1,0 +1,268 @@
+{
+  "app_name": "NEXORAOS",
+  "tagline": "Café Operations, Simplified",
+  "powered_by": "PEAN",
+  "pricing": {
+    "monthly": {
+      "amount": "₹149",
+      "period": "month",
+      "label": "Standard Plan"
+    },
+    "yearly": {
+      "amount": "₹1,199",
+      "period": "year",
+      "badge": "BEST VALUE (Save 33%)"
+    }
+  },
+  "design_archetype": "ORGANIC & EARTHY / WARM MINIMAL CAFÉ",
+  "theme_strategy": {
+    "default_mode": "light",
+    "support_dark_toggle": true,
+    "aesthetic": "Linear/Notion inspired precision with warm cream/coffee earthy undertones"
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "import_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap",
+      "usage": "H1, H2, H3, Sidebar Branding, Modal titles, KDS column headers",
+      "letter_spacing": "tracking-tight"
+    },
+    "body": {
+      "font_family": "Plus Jakarta Sans, sans-serif",
+      "usage": "Body text, tables, form fields, badges, POS cart items"
+    },
+    "mono_numeric": {
+      "font_family": "JetBrains Mono, monospace",
+      "usage": "Prices, Order IDs, Total amounts, Quantity counters, Invoice numbers"
+    },
+    "sizes": {
+      "h1_hero": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "h2_section": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3_card": "text-lg sm:text-xl font-semibold",
+      "body_base": "text-sm sm:text-base leading-relaxed",
+      "caption_small": "text-xs font-medium text-amber-900/60 dark:text-stone-400"
+    }
+  },
+  "colors": {
+    "palette_name": "Warm Coffee & Terracotta Earthy",
+    "light": {
+      "background": "#FDFBF7",
+      "surface": "#FFFFFF",
+      "surface_muted": "#F5ECE1",
+      "border": "#E8DCCF",
+      "border_subtle": "#F2E8DC",
+      "text_primary": "#2D221E",
+      "text_secondary": "#6B5A52",
+      "text_muted": "#9C8A80",
+      "primary_coffee": "#3D271D",
+      "primary_hover": "#2B1A13",
+      "accent_terracotta": "#C85A32",
+      "accent_amber": "#D97706",
+      "status_available_bg": "#ECFDF5",
+      "status_available_text": "#047857",
+      "status_occupied_bg": "#FEF2F2",
+      "status_occupied_text": "#B91C1C",
+      "status_reserved_bg": "#FFFBEB",
+      "status_reserved_text": "#B45309"
+    },
+    "dark": {
+      "background": "#1A1412",
+      "surface": "#241D1A",
+      "surface_muted": "#2E2521",
+      "border": "#3D312A",
+      "border_subtle": "#332822",
+      "text_primary": "#F7F2EC",
+      "text_secondary": "#D1C4B8",
+      "text_muted": "#9E8E81",
+      "primary_coffee": "#E8C8B5",
+      "primary_hover": "#F0D7C7",
+      "accent_terracotta": "#E07A5F",
+      "accent_amber": "#F59E0B"
+    },
+    "tailwind_custom_tokens": {
+      "bg-warm-bg": "bg-[#FDFBF7] dark:bg-[#1A1412]",
+      "bg-warm-card": "bg-white dark:bg-[#241D1A]",
+      "bg-warm-muted": "bg-[#F5ECE1] dark:bg-[#2E2521]",
+      "border-warm": "border-[#E8DCCF] dark:border-[#3D312A]",
+      "text-coffee-dark": "text-[#2D221E] dark:text-[#F7F2EC]",
+      "text-coffee-muted": "text-[#6B5A52] dark:text-[#D1C4B8]",
+      "btn-coffee": "bg-[#3D271D] hover:bg-[#2B1A13] text-[#FDFBF7] dark:bg-[#E8C8B5] dark:hover:bg-[#F0D7C7] dark:text-[#1A1412]",
+      "btn-terracotta": "bg-[#C85A32] hover:bg-[#B04A25] text-white"
+    }
+  },
+  "spacing_and_layout": {
+    "sidebar_width": "w-64",
+    "container_padding": "p-4 sm:p-6 lg:p-8",
+    "card_padding": "p-5 sm:p-6",
+    "border_radius": "rounded-xl for cards, rounded-lg for buttons, rounded-full for badges/pills",
+    "grid_gap": "gap-4 sm:gap-6",
+    "pos_layout": "3-column layout on desktop: Left sidebar nav (w-64), Center categories & products grid (flex-1), Right live cart panel (w-96)",
+    "kds_layout": "4-column responsive board (NEW / PREPARING / READY / COMPLETED) with timer indicators and single-click status transitions"
+  },
+  "routes_and_pages": [
+    {
+      "path": "/dashboard",
+      "title": "Dashboard",
+      "key_elements": [
+        "KPI Cards: Today's Sales (₹), Today's Orders, Active Tables count, Pending Kitchen Orders",
+        "Sales Trend Chart (Hourly & Daily toggles using Recharts)",
+        "Recent Live Orders Feed",
+        "Low Stock Alerts Widget",
+        "Top Selling Products list with sales count",
+        "Interactive Active Tables quick status",
+        "Quick Action Buttons: New POS Order, Reserve Table, Add Menu Item"
+      ]
+    },
+    {
+      "path": "/pos",
+      "title": "Point of Sale (POS)",
+      "key_elements": [
+        "Category Bar: All, Coffee, Tea, Cold Drinks, Food, Snacks, Desserts",
+        "Product Grid: Name, Category, Price, Stock indicator, Add-to-Cart trigger, initial/icon visual",
+        "Cart Drawer/Panel: Item list, quantity modifier (+/-), subtotal, discount input, tax (5% GST), total bill",
+        "Dine-in / Takeaway / Delivery selector & Table selector",
+        "Payment Methods: Cash, UPI (QR preview), Card",
+        "Action Buttons: 'Send to Kitchen', 'Pay & Complete', 'Print Invoice'",
+        "Modal: Live Printable Receipt / Tax Invoice preview"
+      ]
+    },
+    {
+      "path": "/tables",
+      "title": "Table Management",
+      "key_elements": [
+        "Visual Floor Plan Grid with statuses (Available, Occupied, Reserved)",
+        "Table Details Popover: Current order summary, seated time, waiter assigned",
+        "Quick Actions: Occupy Table, Reserve Table, Clear Table, Move Order"
+      ]
+    },
+    {
+      "path": "/orders",
+      "title": "Order Management",
+      "key_elements": [
+        "Tabs: All Orders, New, Preparing, Ready, Completed, Cancelled",
+        "Search & Filter by Order ID, Customer Phone, Payment Status, Order Type",
+        "Order Detail Sheet / Modal with itemized breakdown and status stepper"
+      ]
+    },
+    {
+      "path": "/kitchen",
+      "title": "Kitchen Display System (KDS)",
+      "key_elements": [
+        "Kanban Board Columns: NEW (Amber), PREPARING (Blue), READY (Green), COMPLETED (Muted)",
+        "Real-time Elapsed Timer on each order card (Color turns red if > 15 mins)",
+        "Item Checklist with individual mark-done switches",
+        "One-tap 'Move to Preparing' and 'Mark Ready' buttons"
+      ]
+    },
+    {
+      "path": "/menu",
+      "title": "Menu Management",
+      "key_elements": [
+        "CRUD Interface: Add/Edit/Delete Menu Items",
+        "Category Manager & In-Stock/Out-of-Stock Toggle",
+        "Price & GST Tax Rate Configurator"
+      ]
+    },
+    {
+      "path": "/inventory",
+      "title": "Inventory Management",
+      "key_elements": [
+        "Ingredient Stock Table with Reorder Levels",
+        "Visual Low Stock Alerts (< threshold)",
+        "Stock In / Stock Out log entry form"
+      ]
+    },
+    {
+      "path": "/customers",
+      "title": "Customer CRM",
+      "key_elements": [
+        "Customer Directory (Name, Phone, Total Visits, Lifetime Spend, Favorite Drink)",
+        "Loyalty Points balance indicator",
+        "Add New Customer quick modal"
+      ]
+    },
+    {
+      "path": "/staff",
+      "title": "Staff & Roles",
+      "key_elements": [
+        "Staff List with Role badges: Owner, Manager, Cashier, Kitchen Staff",
+        "Permissions Matrix overview",
+        "Add Staff Member dialog with PIN/Email access"
+      ]
+    },
+    {
+      "path": "/reports",
+      "title": "Reports & Analytics",
+      "key_elements": [
+        "Sales Revenue Breakdown (Daily/Weekly/Monthly)",
+        "Peak Hours Heatmap / Bar Chart",
+        "Category Revenue Pie Chart & Export CSV/PDF button"
+      ]
+    },
+    {
+      "path": "/subscription",
+      "title": "Subscription & Billing",
+      "key_elements": [
+        "Current Active Plan Banner",
+        "Pricing Cards: Café Monthly Plan (₹149/mo) vs Café Yearly Plan (₹1,199/yr - BEST VALUE badge)",
+        "Razorpay Mock Checkout Integration dialog",
+        "Invoice History table"
+      ]
+    },
+    {
+      "path": "/settings",
+      "title": "Settings",
+      "key_elements": [
+        "Café Profile: Name, Address, GSTIN, Phone, Logo initials",
+        "Receipt Printing Header/Footer customization",
+        "Tax Config (CGST/SGST/Service Charge)",
+        "Theme Preference Toggle (Light / Dark)"
+      ]
+    },
+    {
+      "path": "/login",
+      "title": "Login & OTP Verification",
+      "key_elements": [
+        "Warm minimal aesthetic login card",
+        "Step 1: Enter Email address",
+        "Step 2: 6-Digit OTP verification with input-otp component",
+        "Demo Credentials auto-fill buttons (Owner / Cashier / Kitchen)"
+      ]
+    }
+  ],
+  "data_testid_convention": {
+    "rule": "kebab-case, explicit and descriptive",
+    "examples": [
+      "sidebar-nav-dashboard",
+      "pos-category-coffee",
+      "pos-product-item-espresso",
+      "pos-add-to-cart-button-espresso",
+      "pos-cart-subtotal",
+      "pos-cart-pay-button",
+      "pos-payment-modal-upi",
+      "kds-order-card-101",
+      "kds-status-btn-preparing-101",
+      "table-grid-item-4",
+      "auth-email-input",
+      "auth-send-otp-button",
+      "auth-otp-input-code",
+      "subscription-plan-yearly-button"
+    ]
+  },
+  "component_strategy": {
+    "icons": "Use lucide-react (Coffee, Utensils, LayoutDashboard, ShoppingBag, Grid, Clock, ChefHat, Package, Users, Shield, BarChart3, CreditCard, Settings, Sun, Moon, Plus, Trash2, CheckCircle2, AlertTriangle, ArrowRight, Printer)",
+    "no_product_images": "Product cards MUST use stylized initials or warm colored icon badges with subtle gradients/borders instead of photorealistic stock images as specified in PRD",
+    "toasts": "Sonner toast notifications for order placements, kitchen updates, inventory alerts, and payment receipts"
+  },
+  "image_urls": {
+    "hero_atmosphere": "https://images.unsplash.com/photo-1728761390316-935ffeb3fbcc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwyfHx3YXJtJTIwY29mZmVlJTIwYmVhbnMlMjBjYWZlJTIwaW50ZXJpb3IlMjBtaW5pbWFsaXN0aWN8ZW58MHx8fHwxNzg5MDUwNzM0fDA&ixlib=rb-4.1.0&q=85",
+    "barista_counter": "https://images.unsplash.com/photo-1690618299313-ccbbb4a766db?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwzfHx3YXJtJTIwY29mZmVlJTIwYmVhbnMlMjBjYWZlJTIwaW50ZXJpb3IlMjBtaW5pbWFsaXN0aWN8ZW58MHx8fHwxNzg5MDUwNzM0fDA&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Follow this exact color tokens and typography configuration in tailwind and index.css.",
+    "Ensure every page route listed in routes_and_pages is fully interactive with rich mock data.",
+    "Add explicit data-testid attributes to all buttons, tabs, inputs, cards, and navigation items.",
+    "Do not use photorealistic product images in POS or Menu; use clean initials badges with category color accenting.",
+    "Implement Sonner toast notifications for all key actions (e.g. 'Order #104 Sent to Kitchen', 'Payment Successful', 'Low Stock Alert')."
+  ]
+}
