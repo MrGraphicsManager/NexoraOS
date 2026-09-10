@@ -396,6 +396,9 @@ class CafeUpdate(BaseModel):
     phone: Optional[str] = None
     gstin: Optional[str] = None
     tax_rate: Optional[float] = None
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
+    ready_message: Optional[str] = None
 
 @api.patch("/cafe")
 async def update_cafe(body: CafeUpdate, user: dict = Depends(require_roles("owner", "manager"))):
@@ -404,6 +407,17 @@ async def update_cafe(body: CafeUpdate, user: dict = Depends(require_roles("owne
         await db.cafes.update_one({"id": user["cafe_id"]}, {"$set": patch})
     cafe = await db.cafes.find_one({"id": user["cafe_id"]}, {"_id": 0})
     return cafe
+
+@api.patch("/orders/{oid}/confirm-cash")
+async def confirm_cash(oid: str, user: dict = Depends(require_roles("owner", "manager", "cashier"))):
+    order = await db.orders.find_one({"id": oid, "cafe_id": user["cafe_id"]})
+    if not order:
+        raise HTTPException(404, "Not found")
+    if order.get("payment_status") == "paid":
+        return {"ok": True, "already_paid": True}
+    await db.orders.update_one({"id": oid}, {"$set": {"payment_method": "cash", "payment_status": "paid"}})
+    asyncio.create_task(ws_manager.broadcast(user["cafe_id"], {"type": "order.updated", "order_no": order["order_no"], "id": oid, "payment_status": "paid"}))
+    return {"ok": True}
 
 # ---------- Categories ----------
 class CategoryBody(BaseModel):
@@ -943,9 +957,12 @@ public_api = APIRouter(prefix="/api/public")
 
 @public_api.get("/menu")
 async def public_menu(cafe_id: str, table_id: Optional[str] = None):
-    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0, "owner_id": 0})
+    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0, "owner_id": 0, "razorpay_key_secret": 0})
     if not cafe:
         raise HTTPException(404, "Café not found")
+    upi_enabled = bool(cafe.get("razorpay_key_id"))
+    cafe["upi_enabled"] = upi_enabled
+    cafe["ready_message"] = cafe.get("ready_message") or "Your order is ready — please collect it from the counter."
     table = None
     if table_id:
         table = await db.tables.find_one({"id": table_id, "cafe_id": cafe_id}, {"_id": 0})
@@ -962,7 +979,8 @@ class PublicOrderBody(BaseModel):
     cafe_id: str
     table_id: str
     customer_name: Optional[str] = ""
-    customer_phone: Optional[str] = ""
+    customer_phone: str  # REQUIRED
+    payment_method: str  # "upi" | "cash"
     items: List[PublicOrderItem]
     notes: Optional[str] = ""
 
@@ -976,7 +994,14 @@ async def public_create_order(body: PublicOrderBody):
         raise HTTPException(404, "Table not found")
     if not body.items:
         raise HTTPException(400, "Empty order")
-    # Resolve product prices from DB (never trust client)
+    phone_digits = "".join(c for c in (body.customer_phone or "") if c.isdigit())
+    if len(phone_digits) < 10:
+        raise HTTPException(400, "Valid 10-digit mobile number is required")
+    if body.payment_method not in ("upi", "cash"):
+        raise HTTPException(400, "payment_method must be 'upi' or 'cash'")
+    if body.payment_method == "upi" and not cafe.get("razorpay_key_id"):
+        raise HTTPException(400, "UPI not enabled for this café")
+    # Resolve items server-side
     order_items = []
     subtotal = 0
     for it in body.items:
@@ -991,23 +1016,85 @@ async def public_create_order(body: PublicOrderBody):
     tax = round(subtotal * tax_rate / 100, 2)
     total = round(subtotal + tax, 2)
     order_no = await _next_order_no(body.cafe_id)
+    order_id = str(uuid.uuid4())
     doc = {
-        "id": str(uuid.uuid4()), "cafe_id": body.cafe_id, "order_no": order_no,
+        "id": order_id, "cafe_id": body.cafe_id, "order_no": order_no,
         "items": order_items, "order_type": "dine_in", "table_id": body.table_id,
         "customer_id": None, "discount": 0, "tax_rate": tax_rate, "tax": tax,
         "subtotal": subtotal, "total": total,
-        "payment_method": None, "payment_status": "unpaid", "status": "new",
-        "notes": (f"[QR order] {body.customer_name or 'Guest'}"
-                  f"{' · '+body.customer_phone if body.customer_phone else ''}"
+        "payment_method": body.payment_method,
+        "payment_status": "pending",  # will become 'paid' after UPI verify / cash confirm
+        "status": "new",
+        "notes": (f"[QR order · T{table.get('number','?')}] {body.customer_name or 'Guest'} · +{phone_digits}"
                   f"{' · '+body.notes if body.notes else ''}"),
+        "customer_phone": phone_digits,
+        "customer_name": body.customer_name or "Guest",
         "source": "qr", "created_at": iso(now_utc()), "created_by": "guest",
     }
     await db.orders.insert_one(doc)
     await db.tables.update_one({"id": body.table_id, "cafe_id": body.cafe_id},
-                               {"$set": {"status": "occupied", "current_order_id": doc["id"],
+                               {"$set": {"status": "occupied", "current_order_id": order_id,
                                          "occupied_at": iso(now_utc())}})
-    asyncio.create_task(ws_manager.broadcast(body.cafe_id, {"type": "order.new", "order_no": order_no, "id": doc["id"], "source": "qr"}))
-    return {"order_no": order_no, "total": total, "status": "new"}
+    asyncio.create_task(ws_manager.broadcast(body.cafe_id, {"type": "order.new", "order_no": order_no, "id": order_id, "source": "qr", "payment_method": body.payment_method}))
+    resp = {"order_id": order_id, "order_no": order_no, "total": total, "status": "new", "payment_status": "pending", "payment_method": body.payment_method}
+    if body.payment_method == "upi":
+        # Create Razorpay order using CAFÉ's keys
+        try:
+            cafe_client = razorpay.Client(auth=(cafe["razorpay_key_id"], cafe["razorpay_key_secret"]))
+            receipt = f"qr_{order_no}_{int(now_utc().timestamp())}"[:40]
+            rzp = cafe_client.order.create({"amount": int(total * 100), "currency": "INR",
+                                            "receipt": receipt, "payment_capture": 1,
+                                            "notes": {"cafe_id": body.cafe_id, "order_id": order_id}})
+            await db.orders.update_one({"id": order_id}, {"$set": {"razorpay_order_id": rzp["id"]}})
+            resp["razorpay_order_id"] = rzp["id"]
+            resp["razorpay_key_id"] = cafe["razorpay_key_id"]
+            resp["amount"] = int(total * 100)
+        except Exception as e:
+            logger.error("Café Razorpay order create failed: %s", e)
+            raise HTTPException(500, "Payment gateway error. Please pay by cash or try again.")
+    return resp
+
+class PublicVerifyBody(BaseModel):
+    order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+@public_api.post("/orders/verify")
+async def public_verify_payment(body: PublicVerifyBody):
+    order = await db.orders.find_one({"id": body.order_id})
+    if not order or not order.get("razorpay_order_id"):
+        raise HTTPException(404, "Order not found")
+    cafe = await db.cafes.find_one({"id": order["cafe_id"]})
+    if not cafe or not cafe.get("razorpay_key_secret"):
+        raise HTTPException(400, "Payment gateway not configured")
+    try:
+        cafe_client = razorpay.Client(auth=(cafe["razorpay_key_id"], cafe["razorpay_key_secret"]))
+        cafe_client.utility.verify_payment_signature({
+            "razorpay_order_id": order["razorpay_order_id"],
+            "razorpay_payment_id": body.razorpay_payment_id,
+            "razorpay_signature": body.razorpay_signature,
+        })
+    except Exception:
+        raise HTTPException(400, "Invalid payment signature")
+    await db.orders.update_one({"id": body.order_id}, {"$set": {"payment_status": "paid", "razorpay_payment_id": body.razorpay_payment_id}})
+    asyncio.create_task(ws_manager.broadcast(order["cafe_id"], {"type": "order.updated", "order_no": order["order_no"], "id": body.order_id, "payment_status": "paid"}))
+    return {"ok": True, "payment_status": "paid"}
+
+@public_api.get("/orders/{oid}")
+async def public_order_status(oid: str):
+    order = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    cafe = await db.cafes.find_one({"id": order["cafe_id"]}, {"_id": 0, "razorpay_key_secret": 0})
+    ready_msg = (cafe or {}).get("ready_message") or "Your order is ready — please collect it from the counter."
+    return {
+        "id": order["id"], "order_no": order["order_no"], "status": order["status"],
+        "payment_status": order.get("payment_status"), "payment_method": order.get("payment_method"),
+        "total": order.get("total"), "items": order.get("items", []),
+        "created_at": order.get("created_at"),
+        "ready_message": ready_msg,
+        "cafe_name": (cafe or {}).get("name"),
+    }
 
 app.include_router(public_api)
 

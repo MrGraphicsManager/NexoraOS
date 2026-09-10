@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, money, formatApiErrorDetail } from "../lib/api";
 
-const TABS = ["all","new","preparing","ready","completed","cancelled"];
+const TABS = ["all","new","preparing","almost_ready","ready","completed","cancelled"];
 
 export default function Orders() {
   const qc = useQueryClient();
@@ -14,6 +14,10 @@ export default function Orders() {
 
   const setStatus = async (o, status) => {
     try { await api.patch(`/orders/${o.id}`, { status }); toast.success(`Order #${o.order_no} → ${status}`); qc.invalidateQueries({queryKey:["orders"]}); setDetail(null); }
+    catch(e){ toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+  };
+  const confirmCash = async (o) => {
+    try { await api.patch(`/orders/${o.id}/confirm-cash`); toast.success(`Cash confirmed for #${o.order_no}`); qc.invalidateQueries({queryKey:["orders"]}); setDetail(null); }
     catch(e){ toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
 
@@ -35,12 +39,12 @@ export default function Orders() {
             {shown.length===0 ? <tr><td colSpan={7} className="text-center py-16 text-[#9C8A80]">No orders</td></tr> :
               shown.map(o => (
                 <tr key={o.id} data-testid={`orders-row-${o.order_no}`} onClick={()=>setDetail(o)} className="border-t border-[#F2E8DC] hover:bg-[#FDFBF7] cursor-pointer">
-                  <td className="px-4 py-3 tabular font-semibold">#{o.order_no}</td>
+                  <td className="px-4 py-3 tabular font-semibold">#{o.order_no}{o.source==="qr" && <span className="ml-1.5 text-[9px] font-bold uppercase bg-[#C85A32] text-white px-1.5 py-0.5 rounded">QR</span>}</td>
                   <td className="px-4 py-3 text-[#6B5A52] tabular">{new Date(o.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</td>
                   <td className="px-4 py-3 capitalize">{o.order_type.replace("_"," ")}</td>
                   <td className="px-4 py-3 tabular">{o.items.length}</td>
-                  <td className="px-4 py-3"><span className={`badge-status ${o.payment_status==="paid"?"status-available":"status-cancelled"}`}>{o.payment_status}</span></td>
-                  <td className="px-4 py-3"><span className={`badge-status status-${o.status}`}>{o.status}</span></td>
+                  <td className="px-4 py-3"><span className={`badge-status ${o.payment_status==="paid"?"status-available":o.payment_status==="pending"&&o.payment_method==="cash"?"status-reserved":"status-cancelled"}`}>{o.payment_status==="pending"&&o.payment_method==="cash"?"CASH PENDING":o.payment_status}</span></td>
+                  <td className="px-4 py-3"><span className={`badge-status status-${o.status.replace("_","-")}`}>{o.status.replace("_"," ")}</span></td>
                   <td className="px-4 py-3 text-right tabular font-semibold">{money(o.total)}</td>
                 </tr>
               ))}
@@ -62,6 +66,7 @@ export default function Orders() {
             <div className="flex justify-between font-bold text-base pt-2 border-t"><span>Total</span><span className="tabular text-[#C85A32]">{money(detail.total)}</span></div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-5">
+            {detail.payment_status==="pending" && detail.payment_method==="cash" && <button onClick={()=>confirmCash(detail)} data-testid="orders-confirm-cash-button" className="col-span-2 py-2.5 px-4 rounded-lg bg-[#C85A32] text-white font-semibold text-sm">💰 Confirm Cash Received</button>}
             {detail.status!=="cancelled" && detail.status!=="completed" && <button onClick={()=>setStatus(detail,"completed")} data-testid="orders-complete-button" className="btn-coffee text-sm">Mark Completed</button>}
             {detail.status==="new" && <button onClick={()=>setStatus(detail,"cancelled")} className="text-sm px-4 py-2 rounded-lg border border-[#B91C1C] text-[#B91C1C]">Cancel</button>}
             <button onClick={()=>setDetail(null)} className="text-sm px-4 py-2 rounded-lg border border-[#E8DCCF] col-span-full">Close</button>

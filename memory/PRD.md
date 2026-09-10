@@ -37,6 +37,19 @@
 - **Admin console** also gets hamburger drawer + top bar on small screens.
 - **Modals** slide up from bottom on small screens (invoice, split payment, cart).
 
+### Iter 5 — Complete QR Guest Ordering Flow with per-café Razorpay + cash confirmation
+
+- **Guest QR flow rebuilt**: scan → menu → cart → phone-required checkout → payment choice → live status tracker with auto-refresh (3s poll).
+- **Mobile number is now compulsory** on public orders (min 10 digits, backend-validated).
+- **Two payment paths for guests**:
+  - **UPI/Card/Netbanking**: opens Razorpay checkout with the **café's own Razorpay keys** — money lands **directly in the café's bank**. Server verifies payment signature with the café's secret before marking paid.
+  - **Cash at counter**: order enters KDS as `payment_status=pending`. Cashier taps **Confirm Cash Received** on the Orders page which flips it to `paid` and pushes an instant WS update to the customer's tracking screen.
+- **5-stage order status**: New → Preparing → **Almost Ready** → Ready → Completed. Kitchen KDS is now a 5-column board with a fresh amber "Almost Ready" column.
+- **Ready message per café** — configurable in Settings; shown boldly on the guest's phone when the order flips to Ready ("Please collect from counter" / "We'll bring it to your table shortly").
+- **Live status tracker on guest phone**: 5-step progress bar with animated pulse on the current stage, prominent bell alert when Ready, cash-pending vs paid pill, entire screen auto-refreshes every 3s so the customer doesn't have to.
+- **Café Settings**: new **QR Ordering & Payments** section with Razorpay Key ID + Secret + Ready-message inputs. Without keys, guests see only Cash — with keys, UPI unlocks automatically.
+- Tenant-safe: each verify call uses the café's own secret; a leaked signature can't cross into another café.
+
 ## Backlog / Next
 - **P1 — Guest cart sessions** so QR guests review before placing.
 - **P1 — Auto-Seed Demo Data** for empty cafés.

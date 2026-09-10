@@ -7,7 +7,8 @@ import { useAuth } from "../contexts/AuthContext";
 
 const COLS = [
   { key: "new", title: "NEW", tone: "warn", next: "preparing", nextLabel: "Start Preparing" },
-  { key: "preparing", title: "PREPARING", tone: "info", next: "ready", nextLabel: "Mark Ready" },
+  { key: "preparing", title: "PREPARING", tone: "info", next: "almost_ready", nextLabel: "Almost Ready" },
+  { key: "almost_ready", title: "ALMOST READY", tone: "amber", next: "ready", nextLabel: "Mark Ready" },
   { key: "ready", title: "READY", tone: "success", next: "completed", nextLabel: "Complete" },
   { key: "completed", title: "COMPLETED", tone: "muted", next: null },
 ];
@@ -67,12 +68,12 @@ export default function Kitchen() {
           <Radio className={`w-3 h-3 ${live?"animate-pulse":""}`}/> {live ? "LIVE" : "polling"}
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {COLS.map(col => {
           const list = orders.filter(o => o.status === col.key);
           return (
             <div key={col.key} className="bg-white border border-[#E8DCCF] rounded-xl overflow-hidden flex flex-col min-h-[500px]">
-              <div className={`px-4 py-3 border-b border-[#E8DCCF] flex justify-between items-center ${col.tone==="warn"?"bg-[#FFFBEB]":col.tone==="info"?"bg-[#EFF6FF]":col.tone==="success"?"bg-[#ECFDF5]":"bg-[#F5ECE1]"}`}>
+              <div className={`px-4 py-3 border-b border-[#E8DCCF] flex justify-between items-center ${col.tone==="warn"?"bg-[#FFFBEB]":col.tone==="info"?"bg-[#EFF6FF]":col.tone==="amber"?"bg-[#FEF3EC]":col.tone==="success"?"bg-[#ECFDF5]":"bg-[#F5ECE1]"}`}>
                 <div className="font-display font-bold text-sm tracking-wider">{col.title}</div>
                 <div className="text-xs tabular font-semibold text-[#6B5A52]">{list.length}</div>
               </div>

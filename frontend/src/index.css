@@ -84,6 +84,7 @@ h1, h2, h3, h4, h5, .font-display { font-family: 'Outfit', sans-serif; letter-sp
 .status-reserved  { background: var(--warn-bg);    color: var(--warn);    }
 .status-new       { background: #FFFBEB; color: #B45309; }
 .status-preparing { background: #EFF6FF; color: #1D4ED8; }
+.status-almost-ready { background: #FEF3EC; color: #C2410C; }
 .status-ready     { background: #ECFDF5; color: #047857; }
 .status-completed { background: #F3F4F6; color: #374151; }
 .status-cancelled { background: #FEF2F2; color: #B91C1C; }
