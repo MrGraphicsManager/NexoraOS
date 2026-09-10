@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration-3 backend testing complete: WebSocket /api/ws/kds (auth + broadcasts), multi-café Pro plan (limits/switch/isolation/RBAC), Pro Razorpay create-order amounts + guards, and admin invoices CSV export. 18/18 pytest cases pass against the public preview URL (wss://). Iterations 1 & 2 not re-tested per E1 instruction.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/ws/kds", "issue": "When ?token query param is missing, FastAPI rejects the handshake with 403 (Query(...) unsatisfied) BEFORE the endpoint runs, so the documented 4401 close-code is only emitted for invalid tokens, not missing ones. Both paths do block access, so it is behaviourally correct, but the spec claim 'closes with 4401' is inaccurate for the missing-token case. Consider making token Optional[str]=None and closing with 4401 uniformly."},
+      {"endpoint": "GET /api/ws/kds", "issue": "Token expiry is not re-checked while the socket is open; a token that expires mid-session keeps receiving broadcasts until disconnect. Acceptable for MVP."},
+      {"endpoint": "POST /api/cafes", "issue": "When creating a second café under Pro, the server always adds a new 14-day trial subscription for the sibling café even though the parent has an active Pro sub. This creates two overlapping active subs (trial + pro coverage via owner_id). get_active_pro() aggregates by owner and still resolves Pro, so functionally OK, but the trial doc is misleading. Consider inheriting the parent Pro sub or omitting the extra doc."},
+      {"endpoint": "POST /api/cafes/switch", "issue": "Switch mutates users.cafe_id in DB. If a user is logged in on two devices, the old JWT still contains the previous cafe_id claim (JWTs are self-contained) — the old device will keep operating on the old café until re-login. Not a bug per se, but worth documenting."},
+      {"endpoint": "POST /api/orders", "issue": "Authenticated /orders still trusts client-supplied item.price and item.name (only /api/public/orders resolves from DB). Flagged in iter-2; unchanged."},
+      {"endpoint": "GET /api/admin/invoices/export", "issue": "Loops per-invoice DB lookup for café name (N+1). For 20k invoice cap this is up to 20k additional round-trips. Consider a single $lookup aggregation."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Make WebSocket token param Optional and close with 4401 for both missing and invalid tokens to match the documented contract.",
+    "(Optional) Do not insert a redundant 14-day trial subscription when creating sibling cafés under an active Pro plan.",
+    "(Optional) Resolve invoice→café name via $lookup aggregation in /api/admin/invoices/export to avoid N+1."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1107 lines — split into routers (auth, orders, ws, cafes, subscription, admin, public).",
+    "WSManager.broadcast iterates without a lock; concurrent connect/disconnect during a burst broadcast could race set mutation. In practice list(self.rooms.get(...)) mitigates it, but consider an asyncio.Lock per room.",
+    "asyncio.create_task(ws_manager.broadcast(...)) in create_order / update_order_status is fire-and-forget; failures are silently swallowed (no logging). Wrap in try/except with logger.exception.",
+    "get_active_pro queries cafes with .to_list(50) then subscriptions — could be a single aggregation. Also, an owner with >50 cafés (impossible under current plans) would silently drop cafés.",
+    "PLANS dict duplicates plan_code for pro/cafe; verify_sub falls back to 'cafe' if plan_code absent — legacy 'monthly'/'yearly' entries currently return plan='cafe' correctly, but relying on defaults is fragile.",
+    "switch_cafe overwrites users.cafe_id but does NOT invalidate previously issued JWTs — no token revocation list. Acceptable for MVP but security-sensitive.",
+    "admin_invoices_export uses inv.get('created_at','')[:19] — if created_at is missing entirely, this returns '' silently; consider a placeholder like '—'.",
+    "CORS still allow_origins='*' with allow_credentials=True (invalid browser combo). Unchanged from iter-2."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration3.py"],
+  "success_rate": {"backend": "100% (18/18 iteration-3 tests)", "frontend": "not tested (backend only)"},
+  "test_credentials": "Admin: contact@officialdukaan.in / Viral@1979. Owners dynamically created as TEST_<prefix>_<hex>@example.com / Password123! with OTP fetched from Mongo.",
+  "seed_data_creation": "Tests create TEST_ prefixed owners, cafés, categories, products, tables, and a synthetic active Pro subscription (via direct Mongo insert) to simulate the post-purchase state. Not cleaned up (matches iter-1/2 pattern).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iteration3.py covers: WS auth (valid/invalid/missing token + ping/pong), WS broadcast on order.new + tenant isolation (owner A vs B), order.updated status push, public QR order broadcast, /cafes/mine trial defaults, plan-limit block on trial, Pro upgrade via direct Mongo insert unlocking max_cafes=3, second-café creation + listing, /cafes/switch happy-path with JWT claim + product isolation, switch to unowned café → 404, cashier POST /cafes → 403, Pro monthly/yearly amounts (29900 / 249900), invalid plan → 400, admin create-order → 403, CSV export header + content-type + attachment header, non-admin export → 403. Uses websockets 16.1.1 against wss://. Iter-1 backend_test.py and iter-2 test_iteration2.py remain for regression."
+}

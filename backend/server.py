@@ -10,7 +10,10 @@ import secrets
 import hashlib
 import random
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict, Set
+import csv
+import io
+import asyncio
 
 import bcrypt
 import jwt
@@ -18,7 +21,8 @@ import httpx
 import razorpay
 from google.oauth2 import id_token as g_id_token
 from google.auth.transport import requests as g_requests
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -103,6 +107,48 @@ def clean(d):
     if isinstance(d, dict):
         d.pop("_id", None)
     return d
+
+# ---------- WebSocket manager ----------
+class WSManager:
+    def __init__(self):
+        self.rooms: Dict[str, Set[WebSocket]] = {}
+
+    async def connect(self, cafe_id: str, ws: WebSocket):
+        await ws.accept()
+        self.rooms.setdefault(cafe_id, set()).add(ws)
+
+    def disconnect(self, cafe_id: str, ws: WebSocket):
+        if cafe_id in self.rooms:
+            self.rooms[cafe_id].discard(ws)
+
+    async def broadcast(self, cafe_id: str, message: dict):
+        dead = []
+        for ws in list(self.rooms.get(cafe_id, [])):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.rooms[cafe_id].discard(ws)
+
+ws_manager = WSManager()
+
+async def get_active_pro(user_id: str) -> Optional[dict]:
+    """Return an active Pro subscription doc for any café owned by the user, else None."""
+    owned = await db.cafes.find({"owner_id": user_id}, {"_id": 0, "id": 1}).to_list(50)
+    if not owned:
+        return None
+    ids = [c["id"] for c in owned]
+    return await db.subscriptions.find_one({
+        "cafe_id": {"$in": ids},
+        "plan": "pro", "status": "active",
+        "expires_at": {"$gt": iso(now_utc())},
+    })
+
+def max_cafes_for(sub: Optional[dict]) -> int:
+    if sub and sub.get("plan") == "pro":
+        return 3
+    return 1
 
 async def send_email(to: str, subject: str, html: str) -> bool:
     if not EMAIL_KEY or EMAIL_KEY.startswith("{"):
@@ -610,6 +656,7 @@ async def create_order(body: OrderBody, user: dict = Depends(get_current_user)):
         await db.customers.update_one({"id": body.customer_id, "cafe_id": user["cafe_id"]},
                                       {"$inc": {"total_orders": 1, "total_spend": total},
                                        "$set": {"last_order_at": iso(now_utc())}})
+    asyncio.create_task(ws_manager.broadcast(user["cafe_id"], {"type": "order.new", "order_no": order_no, "id": doc["id"]}))
     return clean(doc)
 
 @api.patch("/orders/{oid}")
@@ -623,6 +670,7 @@ async def update_order_status(oid: str, body: OrderStatusBody, user: dict = Depe
         await db.tables.update_one({"id": order["table_id"], "cafe_id": user["cafe_id"]},
                                    {"$set": {"status": "available", "guests": 0,
                                              "occupied_at": None, "current_order_id": None}})
+    asyncio.create_task(ws_manager.broadcast(user["cafe_id"], {"type": "order.updated", "order_no": order.get("order_no") if order else None, "id": oid, "status": body.status}))
     return order
 
 @api.get("/orders/{oid}")
@@ -747,8 +795,10 @@ async def reports(range: str = "7", user: dict = Depends(get_current_user)):
 
 # ---------- Subscription (Razorpay) ----------
 PLANS = {
-    "monthly": {"amount": 14900, "days": 30, "label": "Café Plan • Monthly"},
-    "yearly":  {"amount": 119900, "days": 365, "label": "Café Plan • Yearly"},
+    "monthly":     {"amount": 14900,  "days": 30,  "label": "Café Plan • Monthly",  "plan_code": "cafe"},
+    "yearly":      {"amount": 119900, "days": 365, "label": "Café Plan • Yearly",   "plan_code": "cafe"},
+    "pro_monthly": {"amount": 29900,  "days": 30,  "label": "Pro Plan • Monthly",   "plan_code": "pro"},
+    "pro_yearly":  {"amount": 249900, "days": 365, "label": "Pro Plan • Yearly",    "plan_code": "pro"},
 }
 
 class CreateOrderBody(BaseModel):
@@ -796,7 +846,7 @@ async def verify_sub(body: VerifyPaymentBody, user: dict = Depends(require_roles
     sub_id = str(uuid.uuid4())
     now = now_utc()
     await db.subscriptions.insert_one({
-        "id": sub_id, "cafe_id": user["cafe_id"], "plan": "cafe",
+        "id": sub_id, "cafe_id": user["cafe_id"], "plan": p.get("plan_code", "cafe"),
         "billing_cycle": body.plan, "status": "active",
         "started_at": iso(now), "expires_at": iso(now + timedelta(days=p["days"])),
         "amount": p["amount"] / 100, "payment_id": body.razorpay_payment_id,
@@ -809,6 +859,84 @@ async def verify_sub(body: VerifyPaymentBody, user: dict = Depends(require_roles
     return {"ok": True}
 
 app.include_router(api)
+
+# ---------- Multi-café management ----------
+cafe_api = APIRouter(prefix="/api/cafes")
+
+class NewCafeBody(BaseModel):
+    name: str
+
+@cafe_api.get("/mine")
+async def my_cafes(user: dict = Depends(get_current_user)):
+    if user["role"] != "owner":
+        # Non-owners see just their assigned café
+        c = await db.cafes.find_one({"id": user["cafe_id"]}, {"_id": 0})
+        return {"cafes": [c] if c else [], "current_id": user["cafe_id"], "max_cafes": 1, "is_pro": False}
+    cafes = await db.cafes.find({"owner_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(20)
+    pro = await get_active_pro(user["id"])
+    return {"cafes": cafes, "current_id": user["cafe_id"], "max_cafes": max_cafes_for(pro), "is_pro": bool(pro)}
+
+@cafe_api.post("")
+async def create_cafe(body: NewCafeBody, user: dict = Depends(require_roles("owner"))):
+    pro = await get_active_pro(user["id"])
+    limit = max_cafes_for(pro)
+    count = await db.cafes.count_documents({"owner_id": user["id"]})
+    if count >= limit:
+        raise HTTPException(400, f"Plan limit reached. Upgrade to Pro to add up to {max_cafes_for({'plan':'pro'})} cafés.")
+    cafe_id = str(uuid.uuid4())
+    await db.cafes.insert_one({
+        "id": cafe_id, "name": body.name, "owner_id": user["id"],
+        "gstin": "", "address": "", "phone": "", "tax_rate": 5.0, "currency": "INR",
+        "created_at": iso(now_utc()),
+    })
+    # Sibling café inherits Pro coverage until Pro expiry; also give own 14-day trial as fallback
+    await db.subscriptions.insert_one({
+        "id": str(uuid.uuid4()), "cafe_id": cafe_id, "plan": "trial",
+        "billing_cycle": "trial", "status": "active",
+        "started_at": iso(now_utc()),
+        "expires_at": iso(now_utc() + timedelta(days=14)),
+        "amount": 0, "payment_id": None,
+    })
+    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0})
+    return cafe
+
+class SwitchCafeBody(BaseModel):
+    cafe_id: str
+
+@cafe_api.post("/switch")
+async def switch_cafe(body: SwitchCafeBody, user: dict = Depends(require_roles("owner"))):
+    cafe = await db.cafes.find_one({"id": body.cafe_id, "owner_id": user["id"]})
+    if not cafe:
+        raise HTTPException(404, "Café not found or not owned by you")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"cafe_id": body.cafe_id}})
+    token = make_token(user["id"], body.cafe_id, "owner")
+    return {"token": token, "cafe_id": body.cafe_id, "cafe": clean(cafe)}
+
+app.include_router(cafe_api)
+
+# ---------- WebSocket (Kitchen Live Sync) ----------
+@app.websocket("/api/ws/kds")
+async def ws_kds(ws: WebSocket, token: str = Query(...)):
+    try:
+        payload = decode_token(token)
+        cafe_id = payload.get("cafe_id")
+        if not cafe_id:
+            await ws.close(code=4401); return
+    except Exception:
+        await ws.close(code=4401); return
+    await ws_manager.connect(cafe_id, ws)
+    try:
+        while True:
+            # We only broadcast; ignore inbound. Keep-alive by awaiting client pings/messages.
+            msg = await ws.receive_text()
+            if msg == "ping":
+                await ws.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        ws_manager.disconnect(cafe_id, ws)
 
 # ---------- Public (unauthenticated) — QR ordering ----------
 public_api = APIRouter(prefix="/api/public")
@@ -878,7 +1006,7 @@ async def public_create_order(body: PublicOrderBody):
     await db.tables.update_one({"id": body.table_id, "cafe_id": body.cafe_id},
                                {"$set": {"status": "occupied", "current_order_id": doc["id"],
                                          "occupied_at": iso(now_utc())}})
-    clean(doc)
+    asyncio.create_task(ws_manager.broadcast(body.cafe_id, {"type": "order.new", "order_no": order_no, "id": doc["id"], "source": "qr"}))
     return {"order_no": order_no, "total": total, "status": "new"}
 
 app.include_router(public_api)
@@ -939,6 +1067,29 @@ async def admin_invoices(admin: dict = Depends(get_admin)):
         cafe = await db.cafes.find_one({"id": inv["cafe_id"]}, {"_id": 0, "name": 1})
         inv["cafe_name"] = cafe["name"] if cafe else "—"
     return invoices
+
+@admin_api.get("/invoices/export")
+async def admin_invoices_export(admin: dict = Depends(get_admin)):
+    invoices = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Invoice ID", "Date", "Café", "Café ID", "Plan", "Amount (INR)", "Razorpay Payment ID", "Subscription ID"])
+    for inv in invoices:
+        cafe = await db.cafes.find_one({"id": inv["cafe_id"]}, {"_id": 0, "name": 1})
+        w.writerow([
+            inv.get("id", ""),
+            inv.get("created_at", "")[:19].replace("T", " "),
+            cafe["name"] if cafe else "—",
+            inv.get("cafe_id", ""),
+            inv.get("label", ""),
+            f"{inv.get('amount', 0):.2f}",
+            inv.get("payment_id", ""),
+            inv.get("subscription_id", ""),
+        ])
+    buf.seek(0)
+    fname = f"nexoraos-invoices-{now_utc().strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 app.include_router(admin_api)
 

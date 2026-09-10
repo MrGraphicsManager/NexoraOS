@@ -3,44 +3,45 @@
 **Tagline:** Café Operations, Simplified. **Powered by PEAN.**
 
 ## Personas
-- **Super Admin** — single seeded account (contact@officialdukaan.in). Views every café, subscription and invoice at `/nexoraosadmin`.
-- **Owner** — full café access, staff mgmt, subscription, settings.
-- **Manager** — POS, orders, tables, menu, inventory, customers, reports, staff (view).
-- **Cashier** — POS, orders, tables, customers.
-- **Kitchen Staff** — Kitchen, orders.
-- **Guest (QR)** — scans table QR, browses menu, places order → straight to KDS.
+- **Super Admin** — seeded (contact@officialdukaan.in). `/nexoraosadmin` full visibility + CSV export.
+- **Owner** — full café access, staff, subscription, multi-café on Pro.
+- **Manager / Cashier / Kitchen Staff** — RBAC-scoped access.
+- **Guest (QR)** — scans table QR, orders → straight to KDS.
 
-## Implemented (2026-02)
+## Implemented
 
-### Iteration 1
-- FastAPI monolith with JWT auth, per-café tenant isolation, RBAC.
-- OTP-based email signup / password reset (Emergent Resend).
-- 12 protected pages: Dashboard, POS, Tables, Orders, Kitchen, Menu, Inventory, Customers, Staff, Reports, Subscription, Settings.
-- Razorpay LIVE checkout for ₹149/mo & ₹1,199/yr with signature verification.
+### Iter 1 (2026-02) — 28/28 tests pass
+- FastAPI monolith, JWT auth, per-café tenant isolation, RBAC.
+- OTP signup/reset via Emergent Resend.
+- 12 pages (Dashboard/POS/Tables/Orders/Kitchen/Menu/Inventory/Customers/Staff/Reports/Subscription/Settings).
+- Razorpay LIVE checkout for Café Plan.
 - Warm café aesthetic (Outfit + Plus Jakarta Sans + JetBrains Mono).
-- **28/28 backend tests pass.**
 
-### Iteration 2
-- **Google Sign-In** on `/login` and `/signup` (client ID `682420913410-…`). New users get auto-provisioned café + 14-day trial.
-- **Table QR Ordering**: every table on `/tables` has a QR button that shows a printable QR pointing at `/order?c=…&t=…`. Guests scan → mobile-friendly menu → place order (server resolves prices from DB, never client). Order lands in KDS with source=qr, table becomes occupied.
-- **Split Payments**: POS "Split Payment" modal lets cashiers split total across cash / UPI / card. Backend validates amount enum and sum-equals-total.
-- **Super-admin panel** at `/nexoraosadmin` (dark theme). Login → Overview KPIs (cafés, users, paid subs, trials, revenue, invoices, orders) + full café list + per-café detail (users, subscriptions, invoices) + platform-wide invoice log.
-- **23/23 new backend tests pass** (admin RBAC, Google 401 on invalid token, public menu/orders, split payments).
+### Iter 2 — 23/23 tests pass
+- Google Sign-In (Client ID `682420913410-…`) with auto-café provisioning.
+- Table QR Ordering — printable QR → mobile `/order` page → server-priced orders → KDS.
+- Split payments in POS with server-side sum-equals-total validation.
+- Super-admin console at `/nexoraosadmin` (dark theme).
+
+### Iter 3 — 18/18 tests pass
+- **Live Kitchen Sync via WebSocket** `/api/ws/kds?token=…`. KDS shows LIVE badge, auto-reconnects with 3s backoff, pings every 25s. Broadcasts on cashier order create/update AND public QR order. Tenant-isolated per café.
+- **Multi-Café Pro Plan** — new tiers ₹299/mo & ₹2,499/yr granting up to 3 cafés. Sidebar café-switcher dropdown for owners; "Upgrade to Pro" upsell when a non-Pro owner tries to add a second café. `/cafes/mine`, `/cafes` (POST), `/cafes/switch` endpoints with new JWT on switch.
+- **Invoice CSV Export** — Admin → Invoices → Export CSV. Streams `nexoraos-invoices-YYYYMMDD.csv` with Invoice ID / Date / Café / Café ID / Plan / Amount / Payment ID / Subscription ID.
 
 ## Backlog / Next
-- **P1 — Live Kitchen Sync** via WebSocket (KDS instant updates).
-- **P1 — Guest cart sessions** so QR guests can add-then-review before placing.
-- **P2 — Multi-café for Pro plan** (schema already scoped by cafe_id).
-- **P2 — Real-time table availability** on public QR menu.
-- **P2 — CSV/PDF export** for reports & invoices.
+- **P1 — Guest cart sessions** so QR guests review before placing.
+- **P1 — Auto-Seed Demo Data** for empty cafés.
+- **P2 — Cross-café analytics** for Pro owners (single dashboard aggregating all cafés).
+- **P2 — CSV/PDF export** for reports (mirroring admin export).
 - **P2 — Loyalty & customer segments.**
-- **P3 — Multi-language receipts + i18n.**
-- **P3 — Kitchen printer (ESC/POS) integration.**
+- **P3 — Multi-language receipts, i18n.**
+- **P3 — ESC/POS kitchen printer integration.**
+- **P3 — Server-price authenticated orders** (currently trusts client price for `/api/orders`; public flow already resolves from DB).
 
-## Known Deviations (accepted)
-- Stateless JWT (no server-side session/blacklist on logout).
-- OTP printed in backend log for dev; strip before prod.
+## Known Deviations (accepted for MVP)
+- Stateless JWT (switch does not revoke prior tokens issued for other cafés).
+- server.py is a 1107-line monolith — split when it grows further.
+- WS token expiry not re-checked mid-session.
+- OTP is logged in backend log for dev; strip in prod.
 - CORS `allow_origins=*` — tighten in prod.
-- Server.py is a 946-line monolith — split into routers when it grows further.
-- No pagination on list endpoints (fine for MVP scale).
-- Authenticated /api/orders still trusts client-supplied item price (public /api/public/orders resolves from DB). Consider server-side resolution for authenticated flow too.
+- N+1 queries in `/admin/cafes` and `/admin/invoices/export`; fine at current scale.
