@@ -26,7 +26,8 @@ export default function Orders() {
         ))}
       </div>
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scrollable">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-[#F5ECE1] text-xs uppercase text-[#6B5A52]">
             <tr><th className="text-left px-4 py-3">Order</th><th className="text-left px-4 py-3">Time</th><th className="text-left px-4 py-3">Type</th><th className="text-left px-4 py-3">Items</th><th className="text-left px-4 py-3">Payment</th><th className="text-left px-4 py-3">Status</th><th className="text-right px-4 py-3">Total</th></tr>
           </thead>
@@ -45,6 +46,7 @@ export default function Orders() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {detail && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setDetail(null)}>

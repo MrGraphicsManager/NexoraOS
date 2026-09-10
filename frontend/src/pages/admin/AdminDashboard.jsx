@@ -19,7 +19,7 @@ export default function AdminDashboard() {
         <h1 className="font-display text-3xl font-bold">Overview</h1>
         <p className="text-sm text-[#9E8E81] mt-1">Platform-wide performance across every café.</p>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KPI icon={Store} label="Cafés" value={d.total_cafes ?? "—"}/>
         <KPI icon={Users} label="Users" value={d.total_users ?? "—"}/>
         <KPI icon={CreditCard} label="Paid Subs" value={d.active_subs ?? "—"} tone="green"/>

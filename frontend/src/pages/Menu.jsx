@@ -51,7 +51,8 @@ export default function Menu() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scrollable">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-[#F5ECE1] text-xs uppercase text-[#6B5A52]">
             <tr><th className="text-left px-4 py-3">Product</th><th className="text-left px-4 py-3">Category</th><th className="text-right px-4 py-3">Price</th><th className="text-right px-4 py-3">Prep</th><th className="text-left px-4 py-3">Available</th><th className="px-4 py-3"></th></tr>
           </thead>
@@ -72,6 +73,7 @@ export default function Menu() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {catForm.open && <Modal onClose={()=>setCatForm({open:false,name:""})}>

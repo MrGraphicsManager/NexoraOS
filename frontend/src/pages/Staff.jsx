@@ -36,7 +36,8 @@ export default function Staff() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scrollable">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-[#F5ECE1] text-xs uppercase text-[#6B5A52]"><tr><th className="text-left px-4 py-3">Name</th><th className="text-left px-4 py-3">Email</th><th className="text-left px-4 py-3">Role</th><th></th></tr></thead>
           <tbody>
             {staff.map(s => (
@@ -49,6 +50,7 @@ export default function Staff() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {form && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setForm(null)}>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { api, formatApiErrorDetail } from "../lib/api";
-import { LayoutDashboard, ShoppingBag, Grid3x3, ClipboardList, ChefHat, Utensils, Package, Users, Shield, BarChart3, CreditCard, Settings as SettingsIcon, LogOut, Coffee, ChevronDown, Plus, Check, Building2 } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Grid3x3, ClipboardList, ChefHat, Utensils, Package, Users, Shield, BarChart3, CreditCard, Settings as SettingsIcon, LogOut, Coffee, ChevronDown, Plus, Check, Building2, Menu, X } from "lucide-react";
 
 const NAV = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard", testid: "sidebar-nav-dashboard" },
@@ -21,52 +21,89 @@ const BOTTOM = [
   { to: "/subscription", icon: CreditCard, label: "Subscription", testid: "sidebar-nav-subscription", roles: ["owner"] },
   { to: "/settings", icon: SettingsIcon, label: "Settings", testid: "sidebar-nav-settings" },
 ];
+// Mobile bottom nav — most-used routes
+const MOBILE_TABS = [
+  { to: "/dashboard", icon: LayoutDashboard, label: "Home" },
+  { to: "/pos", icon: ShoppingBag, label: "POS", roles: ["owner","manager","cashier"] },
+  { to: "/orders", icon: ClipboardList, label: "Orders" },
+  { to: "/kitchen", icon: ChefHat, label: "KDS" },
+];
 
 export default function Layout() {
-  const { user, cafe, logout, refresh, setTokenAndUser } = useAuth();
+  const { user, cafe, logout, setTokenAndUser } = useAuth();
   const nav = useNavigate();
+  const loc = useLocation();
+  const [drawer, setDrawer] = useState(false);
+  useEffect(() => { setDrawer(false); }, [loc.pathname]);
   const filter = (items) => items.filter((n) => !n.roles || n.roles.includes(user?.role));
 
-  return (
-    <div className="min-h-screen flex bg-[#FDFBF7]">
-      <aside className="w-64 shrink-0 border-r border-[#E8DCCF] bg-white flex flex-col sticky top-0 h-screen">
-        <div className="px-5 py-5 border-b border-[#F2E8DC]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#3D271D] flex items-center justify-center"><Coffee className="w-5 h-5 text-[#FDFBF7]"/></div>
-            <div>
-              <div className="font-display font-bold text-[17px] text-[#2D221E]">NexoraOS</div>
-              <div className="text-[10.5px] text-[#9C8A80] font-medium tracking-wide">CAFÉ OPERATIONS</div>
-            </div>
+  const Sidebar = (
+    <>
+      <div className="px-5 py-5 border-b border-[#F2E8DC] flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-[#3D271D] flex items-center justify-center"><Coffee className="w-5 h-5 text-[#FDFBF7]"/></div>
+          <div>
+            <div className="font-display font-bold text-[17px] text-[#2D221E]">NexoraOS</div>
+            <div className="text-[10.5px] text-[#9C8A80] font-medium tracking-wide">CAFÉ OPERATIONS</div>
           </div>
         </div>
-
-        <CafeSwitcher user={user} cafe={cafe} onSwitched={async (token)=>{ await setTokenAndUser(token); window.location.reload(); }}/>
-
-        <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto scrollable">
-          {filter(NAV).map((n) => (
+        <button onClick={()=>setDrawer(false)} className="lg:hidden p-2 rounded-lg hover:bg-[#F5ECE1]" data-testid="sidebar-close-button"><X className="w-5 h-5"/></button>
+      </div>
+      <CafeSwitcher user={user} cafe={cafe} onSwitched={async (token)=>{ await setTokenAndUser(token); window.location.reload(); }}/>
+      <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto scrollable">
+        {filter(NAV).map((n) => (
+          <NavLink key={n.to} to={n.to} data-testid={n.testid} className={({isActive}) => `sidebar-link ${isActive ? "active" : ""}`}>
+            <n.icon className="w-4.5 h-4.5" size={17}/> <span>{n.label}</span>
+          </NavLink>
+        ))}
+        <div className="pt-3 mt-3 border-t border-[#F2E8DC] space-y-0.5">
+          {filter(BOTTOM).map((n) => (
             <NavLink key={n.to} to={n.to} data-testid={n.testid} className={({isActive}) => `sidebar-link ${isActive ? "active" : ""}`}>
               <n.icon className="w-4.5 h-4.5" size={17}/> <span>{n.label}</span>
             </NavLink>
           ))}
-          <div className="pt-3 mt-3 border-t border-[#F2E8DC] space-y-0.5">
-            {filter(BOTTOM).map((n) => (
-              <NavLink key={n.to} to={n.to} data-testid={n.testid} className={({isActive}) => `sidebar-link ${isActive ? "active" : ""}`}>
-                <n.icon className="w-4.5 h-4.5" size={17}/> <span>{n.label}</span>
-              </NavLink>
-            ))}
-          </div>
-        </nav>
-        <div className="p-3 border-t border-[#F2E8DC]">
-          <div className="flex items-center gap-3 px-2 py-2">
-            <div className="w-9 h-9 rounded-full bg-[#F5ECE1] flex items-center justify-center font-semibold text-[#3D271D]">{(user?.name || user?.email || "?").charAt(0).toUpperCase()}</div>
-            <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-[#2D221E] truncate">{user?.name || user?.email}</div><div className="text-[11px] text-[#9C8A80] uppercase tracking-wide font-medium">{user?.role?.replace("_"," ")}</div></div>
-            <button data-testid="sidebar-logout-button" onClick={() => { logout(); nav("/login"); }} className="p-2 rounded-lg hover:bg-[#F5ECE1] text-[#6B5A52]" title="Logout"><LogOut className="w-4 h-4" /></button>
-          </div>
-          <div className="text-[10px] text-center text-[#9C8A80] mt-2 tracking-wide">Powered by PEAN</div>
         </div>
-      </aside>
-      <main className="flex-1 min-w-0">
-        <div className="max-w-[1600px] mx-auto p-6 lg:p-8"><Outlet context={{ user, cafe }} /></div>
+      </nav>
+      <div className="p-3 border-t border-[#F2E8DC]">
+        <div className="flex items-center gap-3 px-2 py-2">
+          <div className="w-9 h-9 rounded-full bg-[#F5ECE1] flex items-center justify-center font-semibold text-[#3D271D]">{(user?.name || user?.email || "?").charAt(0).toUpperCase()}</div>
+          <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-[#2D221E] truncate">{user?.name || user?.email}</div><div className="text-[11px] text-[#9C8A80] uppercase tracking-wide font-medium">{user?.role?.replace("_"," ")}</div></div>
+          <button data-testid="sidebar-logout-button" onClick={() => { logout(); nav("/login"); }} className="p-2 rounded-lg hover:bg-[#F5ECE1] text-[#6B5A52]" title="Logout"><LogOut className="w-4 h-4" /></button>
+        </div>
+        <div className="text-[10px] text-center text-[#9C8A80] mt-2 tracking-wide">Powered by PEAN</div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen flex bg-[#FDFBF7]">
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex w-64 shrink-0 border-r border-[#E8DCCF] bg-white flex-col sticky top-0 h-screen">{Sidebar}</aside>
+
+      {/* Mobile drawer */}
+      {drawer && <div className="lg:hidden fixed inset-0 z-50 flex">
+        <div className="absolute inset-0 bg-black/40" onClick={()=>setDrawer(false)}/>
+        <aside className="relative w-72 max-w-[85vw] bg-white flex flex-col border-r border-[#E8DCCF] animate-in slide-in-from-left">{Sidebar}</aside>
+      </div>}
+
+      <main className="flex-1 min-w-0 pb-20 lg:pb-0">
+        {/* Mobile top bar */}
+        <div className="lg:hidden sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-[#F2E8DC] px-4 py-3 flex items-center justify-between">
+          <button onClick={()=>setDrawer(true)} data-testid="mobile-menu-button" className="p-1.5 -ml-1.5 rounded-lg"><Menu className="w-6 h-6"/></button>
+          <div className="flex items-center gap-2"><Coffee className="w-5 h-5 text-[#3D271D]"/><span className="font-display font-bold text-[15px]">{cafe?.name || "NexoraOS"}</span></div>
+          <div className="w-8"/>
+        </div>
+
+        <div className="max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8"><Outlet context={{ user, cafe }} /></div>
+
+        {/* Mobile bottom nav */}
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-[#E8DCCF] grid grid-cols-4">
+          {MOBILE_TABS.filter(t=>!t.roles||t.roles.includes(user?.role)).map(t => (
+            <NavLink key={t.to} to={t.to} data-testid={`mobile-tab-${t.label.toLowerCase()}`} className={({isActive}) => `flex flex-col items-center py-2.5 gap-0.5 text-[10px] font-semibold ${isActive?"text-[#C85A32]":"text-[#6B5A52]"}`}>
+              <t.icon className="w-5 h-5"/><span className="uppercase tracking-wide">{t.label}</span>
+            </NavLink>
+          ))}
+        </nav>
       </main>
     </div>
   );
@@ -90,7 +127,6 @@ function CafeSwitcher({ user, cafe, onSwitched }) {
     try { const { data } = await api.post("/cafes/switch", { cafe_id: cid }); toast.success("Switched café"); setOpen(false); onSwitched(data.token); }
     catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
-
   const create = async () => {
     setBusy(true);
     try { await api.post("/cafes", { name: newName }); toast.success("Café created"); setNewName(""); setShowAdd(false); await load(); }
@@ -116,8 +152,7 @@ function CafeSwitcher({ user, cafe, onSwitched }) {
         <div className="absolute left-3 right-3 top-[calc(100%-4px)] card p-1.5 z-30 shadow-lg">
           {cafes.map(c => (
             <button key={c.id} onClick={()=>switchTo(c.id)} data-testid={`cafe-switch-${c.id}`} className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-left text-sm ${c.id===user?.cafe_id?"bg-[#F5ECE1]":"hover:bg-[#FDFBF7]"}`}>
-              <Building2 className="w-3.5 h-3.5 text-[#6B5A52]"/>
-              <span className="flex-1 truncate">{c.name}</span>
+              <Building2 className="w-3.5 h-3.5 text-[#6B5A52]"/><span className="flex-1 truncate">{c.name}</span>
               {c.id === user?.cafe_id && <Check className="w-3.5 h-3.5 text-[#047857]"/>}
             </button>
           ))}

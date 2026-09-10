@@ -32,7 +32,8 @@ export default function Inventory() {
         <button data-testid="inventory-add-button" onClick={()=>setForm({name:"",category:"",unit:"kg",current_stock:0,min_stock:0,cost:0,supplier:""})} className="btn-coffee text-sm inline-flex items-center gap-2"><Plus className="w-4 h-4"/> Add Item</button>
       </div>
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scrollable">
+        <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-[#F5ECE1] text-xs uppercase text-[#6B5A52]">
             <tr><th className="text-left px-4 py-3">Item</th><th className="text-left px-4 py-3">Category</th><th className="text-right px-4 py-3">Stock</th><th className="text-right px-4 py-3">Min</th><th className="text-right px-4 py-3">Cost</th><th className="text-left px-4 py-3">Supplier</th><th className="px-4 py-3"></th></tr>
           </thead>
@@ -58,6 +59,7 @@ export default function Inventory() {
               })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {form && <Modal onClose={()=>setForm(null)}>

@@ -27,7 +27,8 @@ export default function Customers() {
       </div>
       <div className="relative max-w-sm"><Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9C8A80]"/><input data-testid="customers-search-input" value={q} onChange={(e)=>setQ(e.target.value)} placeholder="Search name or phone…" className="input pl-10"/></div>
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto scrollable">
+        <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-[#F5ECE1] text-xs uppercase text-[#6B5A52]"><tr>
             <th className="text-left px-4 py-3">Name</th><th className="text-left px-4 py-3">Phone</th><th className="text-left px-4 py-3">Email</th><th className="text-right px-4 py-3">Orders</th><th className="text-right px-4 py-3">Spend</th><th className="text-left px-4 py-3">Last</th><th></th>
           </tr></thead>
@@ -46,6 +47,7 @@ export default function Customers() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
       {form && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setForm(null)}>
         <div className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>

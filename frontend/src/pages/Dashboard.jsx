@@ -6,12 +6,12 @@ import { TrendingUp, ShoppingBag, Grid3x3, ChefHat, AlertTriangle, Plus, Package
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
 
 const KPI = ({icon:Icon, label, value, tone="coffee", testid}) => (
-  <div className="card p-5" data-testid={testid}>
+  <div className="card p-4 sm:p-5" data-testid={testid}>
     <div className="flex items-center justify-between">
-      <div className="kpi-label">{label}</div>
+      <div className="kpi-label text-[10px] sm:text-xs">{label}</div>
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${tone==="coffee"?"bg-[#F5ECE1] text-[#3D271D]":tone==="terra"?"bg-[#FEF3EC] text-[#C85A32]":tone==="green"?"bg-[#ECFDF5] text-[#047857]":"bg-[#FEF2F2] text-[#B91C1C]"}`}><Icon className="w-4.5 h-4.5" size={17}/></div>
     </div>
-    <div className="kpi-value mt-2 tabular">{value}</div>
+    <div className="kpi-value text-2xl sm:text-3xl mt-2 tabular">{value}</div>
   </div>
 );
 
@@ -21,19 +21,19 @@ export default function Dashboard() {
   const d = data || {};
   return (
     <div className="space-y-6" data-testid="dashboard-page">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-bold text-[#2D221E]">Dashboard</h1>
+          <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#2D221E]">Dashboard</h1>
           <p className="text-sm text-[#6B5A52] mt-1">Live snapshot of your café today.</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/pos" data-testid="qa-new-order" className="btn-coffee text-sm inline-flex items-center gap-2"><Plus className="w-4 h-4"/> New Order</Link>
-          <Link to="/menu" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium">Add Product</Link>
-          <Link to="/inventory" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium">Add Stock</Link>
-          <Link to="/reports" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium">Reports</Link>
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+          <Link to="/pos" data-testid="qa-new-order" className="btn-coffee text-sm inline-flex items-center justify-center gap-2"><Plus className="w-4 h-4"/> New Order</Link>
+          <Link to="/menu" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium text-center">Add Product</Link>
+          <Link to="/inventory" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium text-center">Add Stock</Link>
+          <Link to="/reports" className="px-4 py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium text-center">Reports</Link>
         </div>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KPI icon={TrendingUp} label="Today's Sales" value={money(d.total_sales)} tone="terra" testid="kpi-sales"/>
         <KPI icon={ShoppingBag} label="Today's Orders" value={d.orders_count ?? 0} tone="coffee" testid="kpi-orders"/>
         <KPI icon={Grid3x3} label="Active Tables" value={d.active_tables ?? 0} tone="green" testid="kpi-tables"/>

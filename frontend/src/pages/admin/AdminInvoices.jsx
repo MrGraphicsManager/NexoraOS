@@ -31,7 +31,8 @@ export default function AdminInvoices() {
         <button onClick={download} data-testid="admin-invoices-export-button" className="px-4 py-2.5 rounded-lg bg-[#E8C8B5] text-[#1A1412] font-semibold text-sm inline-flex items-center gap-2 hover:bg-[#F0D7C7]"><Download className="w-4 h-4"/> Export CSV</button>
       </div>
       <div className="bg-[#241D1A] border border-[#3D312A] rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-[#2E2521] text-[10px] uppercase tracking-widest text-[#9E8E81]"><tr><th className="text-left px-4 py-3">Date</th><th className="text-left px-4 py-3">Café</th><th className="text-left px-4 py-3">Plan</th><th className="text-left px-4 py-3">Payment ID</th><th className="text-right px-4 py-3">Amount</th></tr></thead>
           <tbody>
             {invoices.length===0 ? <tr><td colSpan={5} className="text-center py-16 text-[#9E8E81]">No invoices yet</td></tr> :
@@ -46,6 +47,7 @@ export default function AdminInvoices() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

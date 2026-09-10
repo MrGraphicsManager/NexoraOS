@@ -15,7 +15,8 @@ export default function AdminCafes() {
       <div className="relative max-w-sm"><Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9E8E81]"/>
         <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="Search café or owner…" className="w-full pl-10 pr-3 py-2.5 rounded-lg bg-[#241D1A] border border-[#3D312A] text-[#F7F2EC] outline-none focus:border-[#E8C8B5]"/></div>
       <div className="bg-[#241D1A] border border-[#3D312A] rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[880px]">
           <thead className="bg-[#2E2521] text-[10px] uppercase tracking-widest text-[#9E8E81]">
             <tr><th className="text-left px-4 py-3">Café</th><th className="text-left px-4 py-3">Owner</th><th className="text-left px-4 py-3">Plan</th><th className="text-left px-4 py-3">Status</th><th className="text-left px-4 py-3">Renewal</th><th className="text-right px-4 py-3">Staff</th><th className="text-right px-4 py-3">Orders</th><th></th></tr>
           </thead>
@@ -35,6 +36,7 @@ export default function AdminCafes() {
               ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

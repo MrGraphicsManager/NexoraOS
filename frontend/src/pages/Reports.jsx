@@ -21,7 +21,7 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <KPI label="Total Sales" value={money(d.total_sales)} tone="terra"/>
         <KPI label="Orders" value={d.orders_count}/>
         <KPI label="Avg Order Value" value={money(d.aov)}/>
@@ -82,5 +82,5 @@ export default function Reports() {
   );
 }
 const KPI = ({label,value,tone}) => (
-  <div className="card p-5"><div className="kpi-label">{label}</div><div className={`kpi-value tabular mt-2 ${tone==="terra"?"text-[#C85A32]":""}`}>{value}</div></div>
+  <div className="card p-4 sm:p-5"><div className="kpi-label text-[10px] sm:text-xs">{label}</div><div className={`kpi-value text-2xl sm:text-3xl tabular mt-2 ${tone==="terra"?"text-[#C85A32]":""}`}>{value}</div></div>
 );

@@ -28,6 +28,15 @@
 - **Multi-Café Pro Plan** — new tiers ₹299/mo & ₹2,499/yr granting up to 3 cafés. Sidebar café-switcher dropdown for owners; "Upgrade to Pro" upsell when a non-Pro owner tries to add a second café. `/cafes/mine`, `/cafes` (POST), `/cafes/switch` endpoints with new JWT on switch.
 - **Invoice CSV Export** — Admin → Invoices → Export CSV. Streams `nexoraos-invoices-YYYYMMDD.csv` with Invoice ID / Date / Café / Café ID / Plan / Amount / Payment ID / Subscription ID.
 
+### Iter 4 — Responsive mobile & tablet UX
+- **Mobile layout (<1024px)**: sticky top bar with hamburger + café name, drawer-based sidebar, 4-tab bottom nav (Home/POS/Orders/KDS), safer 44px tap targets.
+- **Mobile POS**: floating pill cart button (qty · total) → full-height bottom-sheet cart drawer with all POS controls; horizontally scrollable categories; 2-col product grid.
+- **Tablet KDS**: 2×2 responsive KDS board (mobile stacks; tablet 2-col; desktop 4-col).
+- **Responsive tables**: all admin/data tables wrapped in `overflow-x-auto` with min-width so they scroll horizontally on small screens instead of squashing.
+- **Dashboard/Reports KPI grid**: 2-col on mobile, adaptive on desktop; header quick-actions become a 2-col grid on mobile.
+- **Admin console** also gets hamburger drawer + top bar on small screens.
+- **Modals** slide up from bottom on small screens (invoice, split payment, cart).
+
 ## Backlog / Next
 - **P1 — Guest cart sessions** so QR guests review before placing.
 - **P1 — Auto-Seed Demo Data** for empty cafés.
