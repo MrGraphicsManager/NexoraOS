@@ -231,6 +231,32 @@ class ResetBody(BaseModel):
     otp: str
     new_password: str = Field(min_length=6)
 
+async def _upsert_customer(cafe_id: str, phone: str, name: str):
+    if not phone:
+        return None
+    existing = await db.customers.find_one({"cafe_id": cafe_id, "phone": phone})
+    if existing:
+        # Only fill name if empty, never overwrite what café staff typed
+        if not existing.get("name") or existing.get("name") == "Guest":
+            if name and name != "Guest":
+                await db.customers.update_one({"id": existing["id"]}, {"$set": {"name": name}})
+        return existing
+    doc = {
+        "id": str(uuid.uuid4()), "cafe_id": cafe_id, "name": name or "Guest",
+        "phone": phone, "email": "",
+        "total_orders": 0, "total_spend": 0, "last_order_at": None,
+        "created_at": iso(now_utc()), "source": "qr",
+    }
+    await db.customers.insert_one(doc)
+    return doc
+
+async def _bump_customer_on_paid(order: dict):
+    if not order.get("customer_id"):
+        return
+    await db.customers.update_one({"id": order["customer_id"]},
+        {"$inc": {"total_orders": 1, "total_spend": order.get("total", 0)},
+         "$set": {"last_order_at": iso(now_utc())}})
+
 def gen_otp() -> str:
     return f"{random.randint(0, 999999):06d}"
 
@@ -416,6 +442,7 @@ async def confirm_cash(oid: str, user: dict = Depends(require_roles("owner", "ma
     if order.get("payment_status") == "paid":
         return {"ok": True, "already_paid": True}
     await db.orders.update_one({"id": oid}, {"$set": {"payment_method": "cash", "payment_status": "paid"}})
+    await _bump_customer_on_paid(order)
     asyncio.create_task(ws_manager.broadcast(user["cafe_id"], {"type": "order.updated", "order_no": order["order_no"], "id": oid, "payment_status": "paid"}))
     return {"ok": True}
 
@@ -675,6 +702,11 @@ async def create_order(body: OrderBody, user: dict = Depends(get_current_user)):
 
 @api.patch("/orders/{oid}")
 async def update_order_status(oid: str, body: OrderStatusBody, user: dict = Depends(get_current_user)):
+    order_before = await db.orders.find_one({"id": oid, "cafe_id": user["cafe_id"]})
+    if not order_before:
+        raise HTTPException(404, "Not found")
+    if body.status == "preparing" and order_before.get("payment_status") != "paid":
+        raise HTTPException(400, "Confirm payment before moving order to Preparing.")
     patch = {"status": body.status}
     if body.payment_status:
         patch["payment_status"] = body.payment_status
@@ -1017,10 +1049,12 @@ async def public_create_order(body: PublicOrderBody):
     total = round(subtotal + tax, 2)
     order_no = await _next_order_no(body.cafe_id)
     order_id = str(uuid.uuid4())
+    cust = await _upsert_customer(body.cafe_id, phone_digits, body.customer_name or "Guest")
     doc = {
         "id": order_id, "cafe_id": body.cafe_id, "order_no": order_no,
         "items": order_items, "order_type": "dine_in", "table_id": body.table_id,
-        "customer_id": None, "discount": 0, "tax_rate": tax_rate, "tax": tax,
+        "customer_id": cust["id"] if cust else None,
+        "discount": 0, "tax_rate": tax_rate, "tax": tax,
         "subtotal": subtotal, "total": total,
         "payment_method": body.payment_method,
         "payment_status": "pending",  # will become 'paid' after UPI verify / cash confirm
@@ -1077,8 +1111,56 @@ async def public_verify_payment(body: PublicVerifyBody):
     except Exception:
         raise HTTPException(400, "Invalid payment signature")
     await db.orders.update_one({"id": body.order_id}, {"$set": {"payment_status": "paid", "razorpay_payment_id": body.razorpay_payment_id}})
+    await _bump_customer_on_paid(order)
     asyncio.create_task(ws_manager.broadcast(order["cafe_id"], {"type": "order.updated", "order_no": order["order_no"], "id": body.order_id, "payment_status": "paid"}))
     return {"ok": True, "payment_status": "paid"}
+
+@public_api.get("/active-orders")
+async def public_active_orders(cafe_id: str, table_id: Optional[str] = None, phone: Optional[str] = None):
+    """Return unfinished orders (status not completed/cancelled), for guest recovery."""
+    q = {"cafe_id": cafe_id, "status": {"$nin": ["completed", "cancelled"]},
+         "created_at": {"$gte": iso(now_utc() - timedelta(hours=6))}}
+    if table_id:
+        q["table_id"] = table_id
+    if phone:
+        q["customer_phone"] = "".join(c for c in phone if c.isdigit())
+    orders = await db.orders.find(q, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10)
+    out = []
+    for o in orders:
+        out.append({
+            "id": o["id"], "order_no": o["order_no"], "status": o["status"],
+            "payment_status": o.get("payment_status"), "payment_method": o.get("payment_method"),
+            "total": o.get("total"), "created_at": o.get("created_at"),
+            "customer_name": o.get("customer_name"), "items_count": len(o.get("items", [])),
+        })
+    return out
+
+@public_api.get("/tv")
+async def public_tv(cafe_id: str):
+    """Kiosk / TV screen data. Never leaks phone."""
+    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0, "razorpay_key_secret": 0})
+    if not cafe:
+        raise HTTPException(404, "Café not found")
+    orders_raw = await db.orders.find(
+        {"cafe_id": cafe_id, "status": {"$in": ["preparing", "almost_ready", "ready"]}},
+        {"_id": 0, "order_no": 1, "status": 1, "customer_name": 1, "table_id": 1, "created_at": 1}
+    ).sort("created_at", 1).to_list(80)
+    # Resolve table numbers in one pass
+    table_ids = list({o.get("table_id") for o in orders_raw if o.get("table_id")})
+    tables = {}
+    if table_ids:
+        async for t in db.tables.find({"id": {"$in": table_ids}}, {"_id": 0, "id": 1, "number": 1}):
+            tables[t["id"]] = t["number"]
+    out = []
+    for o in orders_raw:
+        full = (o.get("customer_name") or "Guest").strip()
+        first_name = full.split()[0] if full else "Guest"
+        out.append({
+            "order_no": o["order_no"], "status": o["status"],
+            "name": first_name,
+            "table": tables.get(o.get("table_id")),
+        })
+    return {"cafe_name": cafe.get("name"), "ready_message": cafe.get("ready_message"), "orders": out}
 
 @public_api.get("/orders/{oid}")
 async def public_order_status(oid: str):

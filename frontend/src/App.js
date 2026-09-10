@@ -22,6 +22,7 @@ import Reports from "./pages/Reports";
 import Subscription from "./pages/Subscription";
 import Settings from "./pages/Settings";
 import PublicOrder from "./pages/PublicOrder";
+import PublicTv from "./pages/PublicTv";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="/signup" element={<Signup />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/order" element={<PublicOrder />} />
+            <Route path="/tv" element={<PublicTv />} />
 
             {/* Admin */}
             <Route path="/nexoraosadmin" element={<AdminLogin />} />

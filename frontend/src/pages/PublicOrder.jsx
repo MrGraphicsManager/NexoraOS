@@ -2,10 +2,20 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import axios from "axios";
-import { Coffee, Plus, Minus, Check, ShoppingBag, Smartphone, Wallet, Clock, ChefHat, Bell, ArrowRight } from "lucide-react";
+import { Coffee, Plus, Minus, Check, ShoppingBag, Smartphone, Wallet, Clock, ChefHat, Bell, ArrowRight, Receipt, RotateCcw } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const money = (n) => `₹${Number(n||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const LS_KEY = "nx_qr_orders";
+
+function loadStore() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; } }
+function saveStore(s) { try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {} }
+function rememberOrder(cafeId, tableId, orderId) {
+  const s = loadStore(); const k = `${cafeId}:${tableId}`;
+  s[k] = { orderId, ts: Date.now() };
+  saveStore(s);
+}
+function forgetOrder(cafeId, tableId) { const s = loadStore(); delete s[`${cafeId}:${tableId}`]; saveStore(s); }
 
 function loadRazorpay() {
   return new Promise((resolve) => {
@@ -27,14 +37,29 @@ export default function PublicOrder() {
   const [phone, setPhone] = useState("");
   const [pm, setPm] = useState("upi");
   const [busy, setBusy] = useState(false);
-  const [placed, setPlaced] = useState(null); // {order_id, order_no, ...}
+  const [placed, setPlaced] = useState(null);
   const [checkoutMode, setCheckoutMode] = useState(false);
+  const [activeOrders, setActiveOrders] = useState([]);
 
   useEffect(() => {
     if (!cafe_id) { setErr("Invalid QR code"); return; }
     axios.get(`${API}/public/menu`, { params: { cafe_id, table_id: table_id || undefined } })
       .then((r) => { setData(r.data); setPm(r.data.cafe.upi_enabled ? "upi" : "cash"); loadRazorpay(); })
       .catch(() => setErr("Café not found"));
+  }, [cafe_id, table_id]);
+
+  // Fetch table's active orders + reconcile with localStorage
+  const reloadActive = async () => {
+    if (!cafe_id) return;
+    try {
+      const { data } = await axios.get(`${API}/public/active-orders`, { params: { cafe_id, table_id: table_id || undefined } });
+      setActiveOrders(data);
+    } catch {}
+  };
+  useEffect(() => {
+    reloadActive();
+    const t = setInterval(reloadActive, 5000);
+    return () => clearInterval(t);
   }, [cafe_id, table_id]);
 
   const cats = data?.categories || [];
@@ -50,6 +75,14 @@ export default function PublicOrder() {
   const phoneOk = phone.replace(/\D/g,"").length >= 10;
   const upiOn = data?.cafe?.upi_enabled;
 
+  // Prefill from most recent active order (name/phone reuse)
+  useEffect(() => {
+    if (activeOrders?.length && !phone) {
+      const last = activeOrders[0];
+      if (last.customer_name && last.customer_name !== "Guest") setName(last.customer_name);
+    }
+  }, [activeOrders]);
+
   const place = async () => {
     if (!phoneOk) return toast.error("Enter a valid 10-digit mobile number");
     if (!cart.length) return toast.error("Add at least one item");
@@ -64,20 +97,26 @@ export default function PublicOrder() {
         const options = {
           key: r.razorpay_key_id, amount: r.amount, currency: "INR", order_id: r.razorpay_order_id,
           name: data.cafe.name, description: `Order #${r.order_no}`,
-          prefill: { contact: phone, name: name },
+          prefill: { contact: phone, name },
           theme: { color: "#3D271D" },
           handler: async (res) => {
             try {
               await axios.post(`${API}/public/orders/verify`, { order_id: r.order_id, razorpay_payment_id: res.razorpay_payment_id, razorpay_signature: res.razorpay_signature });
+              rememberOrder(cafe_id, table_id, r.order_id);
               setPlaced({ ...r, payment_status: "paid" });
+              setCart([]); setCheckoutMode(false);
+              reloadActive();
               toast.success("Payment successful");
-            } catch (e) { toast.error("Payment verification failed"); }
+            } catch { toast.error("Payment verification failed"); }
           },
           modal: { ondismiss: () => { setBusy(false); toast.info("Payment cancelled — order not placed. Try again."); } },
         };
         new window.Razorpay(options).open();
       } else {
+        rememberOrder(cafe_id, table_id, r.order_id);
         setPlaced({ ...r });
+        setCart([]); setCheckoutMode(false);
+        reloadActive();
         toast.success(`Order #${r.order_no} placed`);
       }
     } catch (e) { toast.error(e.response?.data?.detail || "Could not place order"); }
@@ -86,7 +125,7 @@ export default function PublicOrder() {
 
   if (err) return <FullMessage title="Oops" body={err}/>;
   if (!data) return <FullMessage title="Loading…" body="Fetching the menu"/>;
-  if (placed) return <TrackOrder orderId={placed.order_id} readyMessage={data.cafe.ready_message} onNew={()=>{ setPlaced(null); setCart([]); setCheckoutMode(false); setName(""); setPhone(""); }}/>;
+  if (placed) return <TrackOrder orderId={placed.order_id} readyMessage={data.cafe.ready_message} onOrderMore={()=>{ setPlaced(null); setCart([]); setCheckoutMode(false); }} onDone={()=>{ forgetOrder(cafe_id, table_id); setPlaced(null); setCart([]); setName(""); setPhone(""); setCheckoutMode(false); reloadActive(); }}/>;
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] pb-40">
@@ -102,6 +141,25 @@ export default function PublicOrder() {
 
       {!checkoutMode ? (
         <main className="max-w-2xl mx-auto px-4 py-4 space-y-4">
+          {activeOrders.length > 0 && (
+            <div className="bg-[#FEF3EC] border border-[#F4D8C6] rounded-xl p-3.5" data-testid="public-active-banner">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#C85A32] mb-1.5">Your active order{activeOrders.length>1?"s":""} at this table</div>
+              <div className="space-y-1.5">
+                {activeOrders.map(o => (
+                  <button key={o.id} onClick={()=>setPlaced({order_id:o.id, order_no:o.order_no, payment_status:o.payment_status})} data-testid={`public-active-${o.order_no}`} className="w-full flex items-center gap-2 py-2 px-2.5 rounded-lg bg-white hover:bg-[#F5ECE1]">
+                    <Receipt className="w-4 h-4 text-[#C85A32]"/>
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-semibold text-[#2D221E]">Order #{o.order_no} · <span className="capitalize">{o.status.replace("_"," ")}</span></div>
+                      <div className="text-[11px] text-[#6B5A52]">{o.items_count} item{o.items_count!==1?"s":""} · {money(o.total)} · {o.payment_status==="paid"?"Paid":"Payment pending"}</div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-[#6B5A52]"/>
+                  </button>
+                ))}
+              </div>
+              <div className="text-[11px] text-[#9C8A80] mt-2">Add to your table by picking more items below.</div>
+            </div>
+          )}
+
           <div className="flex gap-2 overflow-x-auto pb-1 scrollable">
             <button onClick={()=>setCat("all")} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${cat==="all"?"bg-[#3D271D] text-[#FDFBF7]":"bg-white border border-[#E8DCCF]"}`}>All</button>
             {cats.map(c => <button key={c.id} onClick={()=>setCat(c.id)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${cat===c.id?"bg-[#3D271D] text-[#FDFBF7]":"bg-white border border-[#E8DCCF]"}`}>{c.name}</button>)}
@@ -145,7 +203,7 @@ export default function PublicOrder() {
             <h2 className="font-display font-bold text-lg">Your details</h2>
             <label className="block"><div className="text-xs font-semibold text-[#6B5A52] uppercase tracking-wide mb-1">Mobile number *</div>
               <input value={phone} onChange={(e)=>setPhone(e.target.value)} data-testid="public-phone-input" type="tel" inputMode="numeric" pattern="\d{10,15}" required className={`input tabular ${!phoneOk && phone ? "border-[#B91C1C]" : ""}`} placeholder="10-digit mobile"/>
-              <div className="text-[11px] text-[#9C8A80] mt-1">Required for order updates &amp; receipt.</div>
+              <div className="text-[11px] text-[#9C8A80] mt-1">Required for order tracking &amp; receipt.</div>
             </label>
             <label className="block"><div className="text-xs font-semibold text-[#6B5A52] uppercase tracking-wide mb-1">Name (optional)</div>
               <input value={name} onChange={(e)=>setName(e.target.value)} className="input" placeholder="Your name"/>
@@ -166,7 +224,7 @@ export default function PublicOrder() {
                 <div className="text-[11px] text-[#6B5A52] mt-0.5">Pay the cashier at your table.</div>
               </button>
             </div>
-            <div className="text-[11px] text-[#9C8A80]">By continuing, you place a real order in {data.cafe.name}'s kitchen.</div>
+            <div className="text-[11px] text-[#9C8A80]">Kitchen only starts once payment is confirmed.</div>
           </div>
 
           <button onClick={place} disabled={busy || !phoneOk || !cart.length} data-testid="public-place-order-button" className="btn-coffee w-full py-4 text-base font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50">
@@ -190,7 +248,7 @@ export default function PublicOrder() {
   );
 }
 
-function TrackOrder({ orderId, readyMessage, onNew }) {
+function TrackOrder({ orderId, readyMessage, onOrderMore, onDone }) {
   const [order, setOrder] = useState(null);
   useEffect(() => {
     let stop = false;
@@ -203,7 +261,7 @@ function TrackOrder({ orderId, readyMessage, onNew }) {
   }, [orderId]);
 
   const STEPS = [
-    { key: "new", label: "Order placed", icon: Check },
+    { key: "new", label: "Waiting for payment", icon: Wallet },
     { key: "preparing", label: "Preparing", icon: ChefHat },
     { key: "almost_ready", label: "Almost ready", icon: Clock },
     { key: "ready", label: "Ready", icon: Bell },
@@ -212,6 +270,7 @@ function TrackOrder({ orderId, readyMessage, onNew }) {
   const idx = order ? STEPS.findIndex(s => s.key === order.status) : 0;
   const paid = order?.payment_status === "paid";
   const isReady = order?.status === "ready" || order?.status === "completed";
+  const isDone = order?.status === "completed";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
@@ -230,12 +289,15 @@ function TrackOrder({ orderId, readyMessage, onNew }) {
         <div className={`card p-4 text-sm ${paid?"bg-[#ECFDF5] border-[#047857]/20":"bg-[#FFFBEB] border-[#B45309]/20"}`}>
           <div className="flex items-center gap-2 font-semibold">
             {paid ? <><Check className="w-4 h-4 text-[#047857]"/> <span className="text-[#047857]">Payment received</span></>
-                  : <><Clock className="w-4 h-4 text-[#B45309]"/> <span className="text-[#B45309]">Cash pending — pay the cashier at your table</span></>}
+                  : <><Clock className="w-4 h-4 text-[#B45309]"/> <span className="text-[#B45309]">
+                    {order?.payment_method === "cash" ? "Cash pending — pay the cashier at your table" : "Waiting for payment…"}
+                  </span></>}
           </div>
           <div className="text-[11px] text-[#6B5A52] mt-1">{order?.payment_method?.toUpperCase()}</div>
+          {!paid && <div className="text-[11px] text-[#B45309] mt-2 font-medium">Kitchen will start preparing only after payment is confirmed.</div>}
         </div>
 
-        {isReady && <div className="card p-5 bg-[#3D271D] text-[#FDFBF7] text-center">
+        {isReady && !isDone && <div className="card p-5 bg-[#3D271D] text-[#FDFBF7] text-center">
           <Bell className="w-6 h-6 mx-auto mb-2 text-[#E8C8B5]"/>
           <div className="font-display font-semibold text-lg leading-snug">{readyMessage}</div>
         </div>}
@@ -245,7 +307,7 @@ function TrackOrder({ orderId, readyMessage, onNew }) {
           <div className="space-y-3">
             {STEPS.map((s, i) => {
               const active = i <= idx && order?.status !== "cancelled";
-              const current = i === idx && !isReady;
+              const current = i === idx && !isDone;
               return (
                 <div key={s.key} className={`flex items-center gap-3 ${active?"":"opacity-40"}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${active?"bg-[#3D271D] text-[#FDFBF7]":"bg-[#F5ECE1] text-[#6B5A52]"} ${current?"ring-4 ring-[#3D271D]/10 animate-pulse":""}`}>
@@ -256,10 +318,13 @@ function TrackOrder({ orderId, readyMessage, onNew }) {
               );
             })}
           </div>
-          <div className="mt-4 text-[11px] text-[#9C8A80]">Refreshes automatically. Show this screen to the cashier when paying cash.</div>
+          <div className="mt-4 text-[11px] text-[#9C8A80]">Refreshes every 3s. You can safely close and reopen — your order will be waiting.</div>
         </div>
 
-        <button onClick={onNew} className="w-full py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium">Place another order</button>
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={onOrderMore} data-testid="public-order-more" className="py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium inline-flex items-center justify-center gap-1.5"><Plus className="w-4 h-4"/> Order more</button>
+          <button onClick={onDone} className="py-2.5 rounded-lg border border-[#E8DCCF] text-sm font-medium inline-flex items-center justify-center gap-1.5 text-[#6B5A52]"><RotateCcw className="w-4 h-4"/> Start over</button>
+        </div>
         <div className="text-[10px] text-center text-[#9C8A80] tracking-widest">POWERED BY PEAN · NEXORAOS</div>
       </div>
     </div>

@@ -50,6 +50,13 @@
 - **Café Settings**: new **QR Ordering & Payments** section with Razorpay Key ID + Secret + Ready-message inputs. Without keys, guests see only Cash — with keys, UPI unlocks automatically.
 - Tenant-safe: each verify call uses the café's own secret; a leaked signature can't cross into another café.
 
+### Iter 6 — Guest recovery, customer auto-CRM, payment gate & TV kiosk
+
+- **QR re-scan shows pending orders**: guest scans same table → menu screen now shows an amber "Your active order(s) at this table" banner at the top listing each unfinished order (status, total, paid/pending). Tap one → jump straight into the live tracker. New endpoint `GET /api/public/active-orders?cafe_id&table_id` returns orders from the last 6 h that are not completed/cancelled. Guest can still add a **fresh** order from the same menu without losing existing ones. `localStorage` also remembers the last order_id per `cafe:table` for instant same-device recovery.
+- **Auto customer CRM**: first time a phone number places a QR order, the café's Customers list gets a new entry (`source: "qr"`) with the name they typed. Every subsequent paid order automatically bumps `total_orders`, `total_spend` and `last_order_at`. Same phone → same customer record (no dupes). Name only overwrites when the existing record is still "Guest".
+- **Payment-first kitchen flow**: `PATCH /api/orders/{id} {status:"preparing"}` now returns **400 "Confirm payment before moving order to Preparing"** if `payment_status != "paid"`. Applies to POS and QR orders alike. Cashiers must tap **Confirm Cash Received** (or UPI must verify) before the kitchen can start cooking. Tracker on the guest phone shows a warning line when payment is pending.
+- **TV / Kiosk display** at `/tv?c=<cafe_id>` — public, no auth. Dark 1920×1080-ready layout with 3 giant columns (Preparing / Almost Ready / Ready). Each card shows only **big token number + first name + table** — **never phone**. Ready column pulses green + café's Ready-message banner sticks to the bottom. Polls every 3 s. New endpoint `GET /api/public/tv?cafe_id=…`.
+
 ## Backlog / Next
 - **P1 — Guest cart sessions** so QR guests review before placing.
 - **P1 — Auto-Seed Demo Data** for empty cafés.
