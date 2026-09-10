@@ -16,6 +16,8 @@ import bcrypt
 import jwt
 import httpx
 import razorpay
+from google.oauth2 import id_token as g_id_token
+from google.auth.transport import requests as g_requests
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
@@ -33,6 +35,9 @@ EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME") or "NexoraOS"
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("nexoraos")
@@ -140,6 +145,19 @@ async def on_start():
     for coll in ["categories", "products", "tables", "orders", "customers", "inventory", "stock_txns", "subscriptions", "invoices", "settings"]:
         await db[coll].create_index("cafe_id")
     await db.orders.create_index([("cafe_id", 1), ("status", 1)])
+    # Seed admin
+    if ADMIN_EMAIL and ADMIN_PASSWORD:
+        existing = await db.users.find_one({"email": ADMIN_EMAIL})
+        if not existing:
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()), "email": ADMIN_EMAIL, "name": "NexoraOS Admin",
+                "password_hash": hash_pw(ADMIN_PASSWORD), "role": "admin",
+                "cafe_id": None, "verified": True, "created_at": iso(now_utc()),
+            })
+            logger.info("Admin seeded: %s", ADMIN_EMAIL)
+        elif not verify_pw(ADMIN_PASSWORD, existing["password_hash"]):
+            await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_pw(ADMIN_PASSWORD), "role": "admin"}})
+            logger.info("Admin password updated")
     logger.info("Indexes ready")
 
 # ---------- Auth ----------
@@ -236,6 +254,53 @@ async def login(body: LoginBody):
     user = await db.users.find_one({"email": email})
     if not user or not user.get("verified") or not verify_pw(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
+    token = make_token(user["id"], user["cafe_id"], user["role"])
+    return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user.get("name"), "role": user["role"], "cafe_id": user["cafe_id"]}}
+
+class GoogleLoginBody(BaseModel):
+    credential: str  # Google ID token
+    cafe_name: Optional[str] = None  # required for new signups
+
+@api.post("/auth/google")
+async def google_login(body: GoogleLoginBody):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(500, "Google login not configured")
+    try:
+        info = g_id_token.verify_oauth2_token(body.credential, g_requests.Request(), GOOGLE_CLIENT_ID)
+    except Exception as e:
+        logger.warning("Google token verify failed: %s", e)
+        raise HTTPException(401, "Invalid Google token")
+    email = info.get("email", "").lower()
+    name = info.get("name") or email.split("@")[0]
+    if not email:
+        raise HTTPException(400, "Google account has no email")
+    user = await db.users.find_one({"email": email})
+    if not user:
+        # First-time Google sign-in: create user + café
+        cafe_id = str(uuid.uuid4())
+        user_id = str(uuid.uuid4())
+        await db.cafes.insert_one({
+            "id": cafe_id, "name": body.cafe_name or f"{name}'s Café",
+            "owner_id": user_id, "gstin": "", "address": "",
+            "phone": "", "tax_rate": 5.0, "currency": "INR",
+            "created_at": iso(now_utc()),
+        })
+        await db.users.insert_one({
+            "id": user_id, "email": email, "name": name,
+            "password_hash": hash_pw(secrets.token_urlsafe(24)),  # unusable — Google-only
+            "role": "owner", "cafe_id": cafe_id, "verified": True,
+            "auth_provider": "google", "created_at": iso(now_utc()),
+        })
+        await db.subscriptions.insert_one({
+            "id": str(uuid.uuid4()), "cafe_id": cafe_id, "plan": "trial",
+            "billing_cycle": "trial", "status": "active",
+            "started_at": iso(now_utc()),
+            "expires_at": iso(now_utc() + timedelta(days=14)),
+            "amount": 0, "payment_id": None,
+        })
+        user = await db.users.find_one({"id": user_id})
+    if user["role"] == "admin":
+        raise HTTPException(403, "Use admin login")
     token = make_token(user["id"], user["cafe_id"], user["role"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user.get("name"), "role": user["role"], "cafe_id": user["cafe_id"]}}
 
@@ -478,6 +543,10 @@ class OrderItem(BaseModel):
     qty: int
     notes: Optional[str] = ""
 
+class OrderPaymentSplit(BaseModel):
+    method: str  # cash | upi | card
+    amount: float
+
 class OrderBody(BaseModel):
     items: List[OrderItem]
     order_type: str = "dine_in"  # dine_in | takeaway | delivery
@@ -485,7 +554,8 @@ class OrderBody(BaseModel):
     customer_id: Optional[str] = None
     discount: float = 0
     tax_rate: float = 5.0
-    payment_method: Optional[str] = None  # cash | upi | card
+    payment_method: Optional[str] = None  # cash | upi | card | split
+    payment_splits: Optional[List[OrderPaymentSplit]] = None
     notes: Optional[str] = ""
 
 class OrderStatusBody(BaseModel):
@@ -508,6 +578,16 @@ async def create_order(body: OrderBody, user: dict = Depends(get_current_user)):
     subtotal = sum(i.price * i.qty for i in body.items)
     tax = round((subtotal - body.discount) * body.tax_rate / 100, 2)
     total = round(subtotal - body.discount + tax, 2)
+    # Validate splits
+    if body.payment_method == "split":
+        if not body.payment_splits:
+            raise HTTPException(400, "payment_splits required for split payment")
+        for s in body.payment_splits:
+            if s.method not in ("cash", "upi", "card"):
+                raise HTTPException(400, f"Invalid split method: {s.method}")
+        split_sum = round(sum(s.amount for s in body.payment_splits), 2)
+        if abs(split_sum - total) > 0.02:
+            raise HTTPException(400, f"Split amounts ({split_sum}) must equal total ({total})")
     order_no = await _next_order_no(user["cafe_id"])
     doc = {
         "id": str(uuid.uuid4()), "cafe_id": user["cafe_id"], "order_no": order_no,
@@ -516,6 +596,7 @@ async def create_order(body: OrderBody, user: dict = Depends(get_current_user)):
         "customer_id": body.customer_id, "discount": body.discount,
         "tax_rate": body.tax_rate, "tax": tax, "subtotal": subtotal, "total": total,
         "payment_method": body.payment_method,
+        "payment_splits": [s.dict() for s in body.payment_splits] if body.payment_splits else None,
         "payment_status": "paid" if body.payment_method else "unpaid",
         "status": "new", "notes": body.notes,
         "created_at": iso(now_utc()), "created_by": user["id"],
@@ -728,6 +809,138 @@ async def verify_sub(body: VerifyPaymentBody, user: dict = Depends(require_roles
     return {"ok": True}
 
 app.include_router(api)
+
+# ---------- Public (unauthenticated) — QR ordering ----------
+public_api = APIRouter(prefix="/api/public")
+
+@public_api.get("/menu")
+async def public_menu(cafe_id: str, table_id: Optional[str] = None):
+    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0, "owner_id": 0})
+    if not cafe:
+        raise HTTPException(404, "Café not found")
+    table = None
+    if table_id:
+        table = await db.tables.find_one({"id": table_id, "cafe_id": cafe_id}, {"_id": 0})
+    cats = await db.categories.find({"cafe_id": cafe_id}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+    prods = await db.products.find({"cafe_id": cafe_id, "available": {"$ne": False}}, {"_id": 0}).to_list(2000)
+    return {"cafe": cafe, "table": table, "categories": cats, "products": prods}
+
+class PublicOrderItem(BaseModel):
+    product_id: str
+    qty: int
+    notes: Optional[str] = ""
+
+class PublicOrderBody(BaseModel):
+    cafe_id: str
+    table_id: str
+    customer_name: Optional[str] = ""
+    customer_phone: Optional[str] = ""
+    items: List[PublicOrderItem]
+    notes: Optional[str] = ""
+
+@public_api.post("/orders")
+async def public_create_order(body: PublicOrderBody):
+    cafe = await db.cafes.find_one({"id": body.cafe_id})
+    if not cafe:
+        raise HTTPException(404, "Café not found")
+    table = await db.tables.find_one({"id": body.table_id, "cafe_id": body.cafe_id})
+    if not table:
+        raise HTTPException(404, "Table not found")
+    if not body.items:
+        raise HTTPException(400, "Empty order")
+    # Resolve product prices from DB (never trust client)
+    order_items = []
+    subtotal = 0
+    for it in body.items:
+        p = await db.products.find_one({"id": it.product_id, "cafe_id": body.cafe_id})
+        if not p or p.get("available") is False:
+            continue
+        order_items.append({"product_id": p["id"], "name": p["name"], "price": p["price"], "qty": it.qty, "notes": it.notes or ""})
+        subtotal += p["price"] * it.qty
+    if not order_items:
+        raise HTTPException(400, "No valid items")
+    tax_rate = cafe.get("tax_rate", 5)
+    tax = round(subtotal * tax_rate / 100, 2)
+    total = round(subtotal + tax, 2)
+    order_no = await _next_order_no(body.cafe_id)
+    doc = {
+        "id": str(uuid.uuid4()), "cafe_id": body.cafe_id, "order_no": order_no,
+        "items": order_items, "order_type": "dine_in", "table_id": body.table_id,
+        "customer_id": None, "discount": 0, "tax_rate": tax_rate, "tax": tax,
+        "subtotal": subtotal, "total": total,
+        "payment_method": None, "payment_status": "unpaid", "status": "new",
+        "notes": (f"[QR order] {body.customer_name or 'Guest'}"
+                  f"{' · '+body.customer_phone if body.customer_phone else ''}"
+                  f"{' · '+body.notes if body.notes else ''}"),
+        "source": "qr", "created_at": iso(now_utc()), "created_by": "guest",
+    }
+    await db.orders.insert_one(doc)
+    await db.tables.update_one({"id": body.table_id, "cafe_id": body.cafe_id},
+                               {"$set": {"status": "occupied", "current_order_id": doc["id"],
+                                         "occupied_at": iso(now_utc())}})
+    clean(doc)
+    return {"order_no": order_no, "total": total, "status": "new"}
+
+app.include_router(public_api)
+
+# ---------- Admin panel ----------
+admin_api = APIRouter(prefix="/api/admin")
+
+async def get_admin(user: dict = Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin only")
+    return user
+
+@admin_api.get("/stats")
+async def admin_stats(admin: dict = Depends(get_admin)):
+    total_cafes = await db.cafes.count_documents({})
+    total_users = await db.users.count_documents({"role": {"$ne": "admin"}})
+    active_subs = await db.subscriptions.count_documents({"status": "active", "plan": "cafe"})
+    trial_subs = await db.subscriptions.count_documents({"status": "active", "plan": "trial"})
+    invoices = await db.invoices.find({}, {"_id": 0}).to_list(10000)
+    total_revenue = sum(i.get("amount", 0) for i in invoices)
+    orders = await db.orders.count_documents({})
+    return {"total_cafes": total_cafes, "total_users": total_users,
+            "active_subs": active_subs, "trial_subs": trial_subs,
+            "total_revenue": total_revenue, "total_orders": orders,
+            "invoice_count": len(invoices)}
+
+@admin_api.get("/cafes")
+async def admin_cafes(admin: dict = Depends(get_admin)):
+    cafes = await db.cafes.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    out = []
+    for c in cafes:
+        owner = await db.users.find_one({"id": c["owner_id"]}, {"_id": 0, "password_hash": 0})
+        sub = await db.subscriptions.find_one({"cafe_id": c["id"]}, {"_id": 0}, sort=[("started_at", -1)])
+        staff_count = await db.users.count_documents({"cafe_id": c["id"]})
+        order_count = await db.orders.count_documents({"cafe_id": c["id"]})
+        c["owner"] = owner
+        c["subscription"] = sub
+        c["staff_count"] = staff_count
+        c["order_count"] = order_count
+        out.append(c)
+    return out
+
+@admin_api.get("/cafes/{cafe_id}")
+async def admin_cafe_detail(cafe_id: str, admin: dict = Depends(get_admin)):
+    cafe = await db.cafes.find_one({"id": cafe_id}, {"_id": 0})
+    if not cafe:
+        raise HTTPException(404, "Not found")
+    users = await db.users.find({"cafe_id": cafe_id}, {"_id": 0, "password_hash": 0}).to_list(500)
+    subs = await db.subscriptions.find({"cafe_id": cafe_id}, {"_id": 0}).sort("started_at", -1).to_list(50)
+    invoices = await db.invoices.find({"cafe_id": cafe_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    orders_total = await db.orders.count_documents({"cafe_id": cafe_id})
+    return {"cafe": cafe, "users": users, "subscriptions": subs, "invoices": invoices, "orders_total": orders_total}
+
+@admin_api.get("/invoices")
+async def admin_invoices(admin: dict = Depends(get_admin)):
+    invoices = await db.invoices.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    for inv in invoices:
+        cafe = await db.cafes.find_one({"id": inv["cafe_id"]}, {"_id": 0, "name": 1})
+        inv["cafe_name"] = cafe["name"] if cafe else "—"
+    return invoices
+
+app.include_router(admin_api)
 
 app.add_middleware(
     CORSMiddleware,

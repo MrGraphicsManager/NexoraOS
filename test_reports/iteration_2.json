@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 backend testing of NexoraOS: admin panel, Google auth endpoint, public QR ordering, and split payments. 23/23 pytest cases pass against the public preview URL. Focused only on the new features per E1's instruction; iteration-1 endpoints not re-tested.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/public/orders", "issue": "When cafe_id is invalid the endpoint returns 404 (correct). But no validation that the table_id actually belongs to the same cafe until table lookup — currently query already scopes by cafe_id so this is fine. Note: order.notes concatenates raw customer_name/phone/notes without sanitisation — low-risk XSS if surfaced in UI without escaping."},
+      {"endpoint": "/api/public/orders", "issue": "public_create_order does NOT check subscription status of the target café — a café with an expired subscription can still receive public QR orders. Confirm if this is by design."},
+      {"endpoint": "/api/public/orders", "issue": "public_create_order does not deduct inventory or update customer stats; also does not require any rate-limit / CAPTCHA — a malicious client can spam orders anonymously. Consider basic per-IP rate limit."},
+      {"endpoint": "/api/admin/stats", "issue": "total_revenue is summed in Python by loading up to 10,000 invoices with .to_list(10000); use a Mongo $group aggregation for scale."},
+      {"endpoint": "/api/admin/cafes", "issue": "N+1 pattern: for each café performs 4 additional queries (owner, subscription, staff_count, order_count). Fine for MVP; will not scale beyond a few hundred cafés — use aggregation with $lookup / $facet."},
+      {"endpoint": "/api/auth/google", "issue": "First-time Google signup auto-creates a café even when cafe_name is omitted (uses '{name}\\'s Café'). No trial/plan validation, and no rate-limit on token attempts. Acceptable for MVP but flagging."},
+      {"endpoint": "/api/orders (split)", "issue": "payment_splits amounts are not validated to sum to order.total. A cashier could enter splits that add up to more/less than the total and the order would still be marked 'paid'. Recommend server-side check: abs(sum(splits) - total) < 0.01 when payment_method='split'."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Validate payment_splits sum == order.total server-side when payment_method='split'.",
+    "(Optional) Block public QR ordering when the café's subscription is expired.",
+    "(Optional) Add rate-limit or basic abuse protection on /api/public/orders.",
+    "(Optional) Replace N+1 loops in /api/admin/cafes and revenue sum in /api/admin/stats with Mongo aggregations."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 946 lines — split into routers/modules (auth, orders, menu, staff, subscription, admin, public).",
+    "OrderBody.create_order still trusts client-supplied item.price for authenticated orders (only public endpoint resolves price from DB). A rogue cashier token could underprice items. Consider resolving price server-side for authenticated /api/orders too.",
+    "public_create_order calls clean(doc) but ignores the return value (line 871); the returned dict is intentionally minimal so this is a dead call — remove it.",
+    "CORS middleware still uses allow_origins='*' with allow_credentials=True — invalid browser combo; must be tightened when frontend cookies are used.",
+    "Admin seed only updates password_hash+role when password mismatches; if admin email is manually flipped to a non-admin role in Mongo, seed will not restore admin role unless the password also changed. Consider always re-asserting role='admin' on startup.",
+    "google_login verify uses google.oauth2.id_token.verify_oauth2_token without clock_skew tolerance; may reject slightly-clock-skewed tokens.",
+    "payment_splits schema stores List[{method, amount}] but the server never validates 'method' enum (cash/upi/card). A client could send method='crypto' and it would persist.",
+    "No pagination on /api/admin/cafes and /api/admin/invoices."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2.py"
+  ],
+  "success_rate": {"backend": "100% (23/23 iteration-2 tests)", "frontend": "not tested (backend only)"},
+  "test_credentials": "Admin: contact@officialdukaan.in / Viral@1979 (seeded on startup, works). Regular owners dynamically created as TEST_own2_<hex>@example.com / Password123! with OTP fetched from Mongo.",
+  "seed_data_creation": "Tests create TEST_ prefixed café/category/product/table/order rows per module. Not cleaned up (matches iteration-1 pattern).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_iteration2.py covers all iteration-2 endpoints (admin auth+RBAC+stats+cafes+detail+invoices, /auth/google invalid/malformed, /public/menu with & without table + 404, /public/orders happy path + 404s + empty items 400 + drops invalid products + all-invalid 400, split payments create + GET verification + backward compatibility). Uses gw-parallel-safe fixtures (module scope) and reads OTPs from db.otps directly. Iteration-1 backend_test.py remains for regression."
+}

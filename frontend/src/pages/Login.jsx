@@ -2,47 +2,49 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Coffee } from "lucide-react";
+import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../contexts/AuthContext";
-import { formatApiErrorDetail } from "../lib/api";
+import { api, formatApiErrorDetail } from "../lib/api";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const { login } = useAuth();
+  const { login, setTokenAndUser } = useAuth();
   const nav = useNavigate();
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      await login(email, password);
+      const u = await login(email, password);
       toast.success("Welcome back");
-      nav("/dashboard");
+      nav(u.role === "admin" ? "/nexoraosadmin/dashboard" : "/dashboard");
     } catch (err) {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Login failed");
     } finally { setBusy(false); }
   };
 
+  const googleOk = async (resp) => {
+    try {
+      const { data } = await api.post("/auth/google", { credential: resp.credential });
+      await setTokenAndUser(data.token);
+      toast.success("Signed in with Google");
+      nav("/dashboard");
+    } catch (err) { toast.error(formatApiErrorDetail(err.response?.data?.detail) || "Google login failed"); }
+  };
+
   return (
     <AuthShell title="Sign in to NexoraOS" subtitle="Café operations, simplified.">
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Email">
-          <input data-testid="login-email-input" type="email" required value={email} onChange={(e)=>setEmail(e.target.value)}
-            className="input" placeholder="you@cafe.com" />
-        </Field>
-        <Field label="Password">
-          <input data-testid="login-password-input" type="password" required value={password} onChange={(e)=>setPassword(e.target.value)}
-            className="input" placeholder="••••••••" />
-        </Field>
-        <div className="flex justify-end">
-          <Link to="/forgot-password" data-testid="login-forgot-link" className="text-xs text-[#C85A32] hover:underline font-medium">Forgot password?</Link>
-        </div>
+        <Field label="Email"><input data-testid="login-email-input" type="email" required value={email} onChange={(e)=>setEmail(e.target.value)} className="input" placeholder="you@cafe.com"/></Field>
+        <Field label="Password"><input data-testid="login-password-input" type="password" required value={password} onChange={(e)=>setPassword(e.target.value)} className="input" placeholder="••••••••"/></Field>
+        <div className="flex justify-end"><Link to="/forgot-password" data-testid="login-forgot-link" className="text-xs text-[#C85A32] hover:underline font-medium">Forgot password?</Link></div>
         <button data-testid="login-submit-button" disabled={busy} className="btn-coffee w-full disabled:opacity-60">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
-      <div className="mt-6 text-sm text-[#6B5A52] text-center">
-        New to NexoraOS? <Link to="/signup" data-testid="login-signup-link" className="text-[#C85A32] font-semibold hover:underline">Create account</Link>
-      </div>
+      <Divider/>
+      <div className="flex justify-center" data-testid="login-google-button"><GoogleLogin onSuccess={googleOk} onError={()=>toast.error("Google sign-in failed")} theme="outline" shape="pill" text="continue_with"/></div>
+      <div className="mt-6 text-sm text-[#6B5A52] text-center">New to NexoraOS? <Link to="/signup" data-testid="login-signup-link" className="text-[#C85A32] font-semibold hover:underline">Create account</Link></div>
     </AuthShell>
   );
 }
@@ -75,7 +77,10 @@ export function Field({ label, children }) {
   );
 }
 
-// shared input style
+export function Divider() {
+  return <div className="flex items-center gap-3 my-5"><div className="flex-1 h-px bg-[#E8DCCF]"/><div className="text-[10px] font-semibold uppercase tracking-wider text-[#9C8A80]">or</div><div className="flex-1 h-px bg-[#E8DCCF]"/></div>;
+}
+
 const style = document.createElement("style");
 style.textContent = `.input { width:100%; padding:11px 14px; border:1px solid #E8DCCF; border-radius:10px; background:white; font-size:14px; outline:none; transition: border-color .15s; }
 .input:focus { border-color:#3D271D; box-shadow: 0 0 0 3px rgba(61,39,29,0.08); }`;

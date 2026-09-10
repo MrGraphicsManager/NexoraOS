@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, money, formatApiErrorDetail } from "../lib/api";
-import { Search, Plus, Minus, Trash2, X, Printer, CreditCard, Coffee } from "lucide-react";
+import { Search, Plus, Minus, Trash2, X, Printer, CreditCard, Coffee, Split } from "lucide-react";
 
 const PAYMENTS = [{k:"cash",label:"Cash"},{k:"upi",label:"UPI"},{k:"card",label:"Card"}];
 const TYPES = [{k:"dine_in",label:"Dine-in"},{k:"takeaway",label:"Takeaway"},{k:"delivery",label:"Delivery"}];
@@ -23,16 +23,13 @@ export default function POS() {
   const [discount, setDiscount] = useState(0);
   const [payment, setPayment] = useState("cash");
   const [invoice, setInvoice] = useState(null);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   const filtered = useMemo(() => products.filter(p => p.available !== false)
     .filter(p => activeCat === "all" || p.category_id === activeCat)
     .filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase())), [products, activeCat, q]);
 
-  const add = (p) => setCart(c => {
-    const ex = c.find(i => i.product_id === p.id);
-    if (ex) return c.map(i => i.product_id === p.id ? { ...i, qty: i.qty+1 } : i);
-    return [...c, { product_id: p.id, name: p.name, price: p.price, qty: 1 }];
-  });
+  const add = (p) => setCart(c => { const ex = c.find(i => i.product_id === p.id); return ex ? c.map(i => i.product_id === p.id ? {...i, qty: i.qty+1} : i) : [...c, { product_id: p.id, name: p.name, price: p.price, qty: 1 }]; });
   const dec = (id) => setCart(c => c.flatMap(i => i.product_id!==id ? [i] : (i.qty>1 ? [{...i, qty:i.qty-1}] : [])));
   const rm = (id) => setCart(c => c.filter(i => i.product_id !== id));
 
@@ -41,18 +38,20 @@ export default function POS() {
   const tax = Math.max(0, (subtotal - discount) * taxRate / 100);
   const total = Math.max(0, subtotal - discount + tax);
 
-  const place = async (withPayment) => {
+  const place = async (withPayment, splits=null) => {
     if (!cart.length) return toast.error("Cart is empty");
     if (orderType === "dine_in" && !tableId) return toast.error("Select a table for dine-in");
     try {
       const body = { items: cart, order_type: orderType, table_id: tableId || null,
         customer_id: customerId || null, discount, tax_rate: taxRate,
-        payment_method: withPayment ? payment : null };
+        payment_method: withPayment ? (splits ? "split" : payment) : null,
+        payment_splits: splits || null };
       const { data } = await api.post("/orders", body);
       toast.success(withPayment ? `Order #${data.order_no} paid & sent` : `Order #${data.order_no} sent to kitchen`);
       qc.invalidateQueries();
       if (withPayment) { setInvoice(data); }
       else { setCart([]); setTableId(""); setCustomerId(""); setDiscount(0); }
+      setSplitOpen(false);
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
   };
 
@@ -131,13 +130,48 @@ export default function POS() {
         <div className="grid grid-cols-3 gap-1 mt-3">
           {PAYMENTS.map(p => <button key={p.k} onClick={()=>setPayment(p.k)} data-testid={`pos-payment-${p.k}`} className={`text-xs py-2 rounded-lg font-medium ${payment===p.k?"bg-[#C85A32] text-white":"bg-[#F5ECE1] text-[#2D221E]"}`}>{p.label}</button>)}
         </div>
+        <button onClick={()=>setSplitOpen(true)} data-testid="pos-split-open-button" disabled={!cart.length} className="mt-1.5 text-xs py-2 rounded-lg font-medium inline-flex items-center justify-center gap-1.5 border border-[#E8DCCF] disabled:opacity-50"><Split className="w-3.5 h-3.5"/> Split Payment</button>
         <div className="grid grid-cols-2 gap-2 mt-3">
           <button onClick={()=>place(false)} data-testid="pos-send-kitchen-button" className="px-4 py-3 rounded-lg border border-[#E8DCCF] text-sm font-semibold">Send to Kitchen</button>
           <button onClick={()=>place(true)} data-testid="pos-pay-button" className="btn-coffee text-sm inline-flex items-center justify-center gap-2"><CreditCard className="w-4 h-4"/> Pay & Complete</button>
         </div>
       </aside>
 
+      {splitOpen && <SplitModal total={total} onClose={()=>setSplitOpen(false)} onSubmit={(splits)=>place(true, splits)}/>}
       {invoice && <InvoiceModal invoice={invoice} onClose={newOrder}/>}
+    </div>
+  );
+}
+
+function SplitModal({ total, onClose, onSubmit }) {
+  const [rows, setRows] = useState([{ method:"cash", amount: total/2 }, { method:"upi", amount: total/2 }]);
+  const sum = rows.reduce((s,r)=>s + (+r.amount||0), 0);
+  const diff = +(total - sum).toFixed(2);
+  const ok = Math.abs(diff) < 0.01 && rows.every(r => r.amount>0);
+  const set = (i, k, v) => setRows(rs => rs.map((r,idx)=>idx===i?{...r,[k]:v}:r));
+  const submit = () => { if (!ok) return; onSubmit(rows.map(r => ({ method: r.method, amount: +r.amount }))); };
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="card p-6 w-full max-w-md" onClick={e=>e.stopPropagation()}>
+        <h3 className="font-display font-bold text-lg mb-1">Split payment</h3>
+        <p className="text-xs text-[#9C8A80] mb-4">Total <span className="tabular font-bold text-[#C85A32]">{money(total)}</span> — split across methods below.</p>
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="flex gap-2">
+              <select value={r.method} onChange={(e)=>set(i,"method",e.target.value)} data-testid={`pos-split-method-${i}`} className="input flex-1 text-sm">
+                {PAYMENTS.map(p=><option key={p.k} value={p.k}>{p.label}</option>)}
+              </select>
+              <input type="number" step="0.01" value={r.amount} onChange={(e)=>set(i,"amount",e.target.value)} data-testid={`pos-split-amount-${i}`} className="input w-32 text-sm tabular"/>
+              {rows.length>1 && <button onClick={()=>setRows(rs=>rs.filter((_,idx)=>idx!==i))} className="w-9 rounded-lg text-[#B91C1C] flex items-center justify-center"><Trash2 className="w-4 h-4"/></button>}
+            </div>
+          ))}
+        </div>
+        <button onClick={()=>setRows(rs=>[...rs,{method:"card",amount:diff>0?diff:0}])} data-testid="pos-split-add" className="mt-2 text-xs font-medium text-[#C85A32]">+ Add method</button>
+        <div className={`mt-4 text-sm p-2.5 rounded-lg tabular flex justify-between ${ok?"bg-[#ECFDF5] text-[#047857]":"bg-[#FEF3EC] text-[#B45309]"}`}>
+          <span>Assigned</span><span data-testid="pos-split-diff">{money(sum)} / {money(total)}{diff!==0?` (${diff>0?"+":""}${money(Math.abs(diff))})`:""}</span>
+        </div>
+        <div className="flex gap-2 mt-5"><button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#E8DCCF]">Cancel</button><button data-testid="pos-split-confirm-button" onClick={submit} disabled={!ok} className="flex-1 btn-coffee text-sm disabled:opacity-50">Confirm & Pay</button></div>
+      </div>
     </div>
   );
 }
@@ -171,6 +205,7 @@ function InvoiceModal({invoice, onClose}) {
             <div className="flex justify-between"><span>Tax</span><span className="tabular">{money(invoice.tax)}</span></div>
             <div className="flex justify-between font-bold pt-2 border-t border-[#F2E8DC] text-base"><span>Total</span><span className="tabular text-[#C85A32]">{money(invoice.total)}</span></div>
             <div className="flex justify-between text-xs text-[#9C8A80] pt-1"><span>Payment</span><span className="uppercase">{invoice.payment_method}</span></div>
+            {invoice.payment_splits && <div className="text-xs text-[#6B5A52] pt-1 space-y-0.5">{invoice.payment_splits.map((s,idx)=><div key={idx} className="flex justify-between"><span className="uppercase">{s.method}</span><span className="tabular">{money(s.amount)}</span></div>)}</div>}
           </div>
           <div className="text-center text-[10px] text-[#9C8A80] mt-6">Thank you! · Powered by NexoraOS</div>
         </div>
